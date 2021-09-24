@@ -55,7 +55,7 @@
     "@fluidframework/container-definitions": "^0.40.0-38679",
     "@fluidframework/core-interfaces": "^0.39.7",
     "@fluidframework/datastore-definitions": "^0.49.0",
-    "@fluidframework/driver-definitions": "^0.39.6",
+    "@fluidframework/driver-definitions": "^0.40.0-38602",
     "@fluidframework/driver-utils": "^0.49.0",
     "@fluidframework/protocol-definitions": "^0.1025.0-38244",
     "@fluidframework/routerlicious-driver": "^0.49.0",
