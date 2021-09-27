@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@fluidframework/protocol-definitions": "^0.1025.0-38244",
-    "@fluidframework/server-services-client": "^0.1031.0-38478"
+    "@fluidframework/server-services-client": "^0.1032.0-38626"
   },
   "devDependencies": {
     "@fluidframework/build-common": "^0.23.0",
