@@ -23,6 +23,19 @@ import { ITelemetryLogger } from '@fluidframework/common-definitions';
 import { ITree } from '@fluidframework/protocol-definitions';
 
 // @public
+export class GCSerializer extends FluidSerializer {
+    // (undocumented)
+    getSerializedRoutes(): string[];
+    replaceHandles(input: any, bind: IFluidHandle): any;
+    // (undocumented)
+    protected serializeHandle(handle: IFluidHandle, bind: IFluidHandle): {
+        type: string;
+        url: string;
+    };
+    stringify(input: any, bind: IFluidHandle): string;
+}
+
+// @public
 export interface ISharedObject<TEvent extends ISharedObjectEvents = ISharedObjectEvents> extends IChannel, IEventProvider<TEvent> {
     bindToContext(): void;
     connect(services: IChannelServices): void;
@@ -90,17 +103,6 @@ export abstract class SharedObject<TEvent extends ISharedObjectEvents = ISharedO
     protected abstract snapshotCore(serializer: IFluidSerializer): ITree;
     protected submitLocalMessage(content: any, localOpMetadata?: unknown): void;
     summarize(fullTree?: boolean, trackState?: boolean): ISummaryTreeWithStats;
-}
-
-// @public
-export class SummarySerializer extends FluidSerializer {
-    // (undocumented)
-    getSerializedRoutes(): string[];
-    // (undocumented)
-    protected serializeHandle(handle: IFluidHandle, bind: IFluidHandle): {
-        type: string;
-        url: string;
-    };
 }
 
 // @public

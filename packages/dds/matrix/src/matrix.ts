@@ -21,7 +21,7 @@ import {
     makeHandlesSerializable,
     parseHandles,
     SharedObject,
-    SummarySerializer,
+    GCSerializer,
 } from "@fluidframework/shared-object-base";
 import { IGarbageCollectionData } from "@fluidframework/runtime-definitions";
 import { ObjectStoragePartition } from "@fluidframework/runtime-utils";
@@ -463,9 +463,9 @@ export class SharedMatrix<T = any>
      * objects.
      */
     protected getGCDataCore(): IGarbageCollectionData {
-        // Create a SummarySerializer and use it to serialize all the cells. It keeps track of all IFluidHandles that it
+        // Create a GCSerializer and use it to serialize all the cells. It keeps track of all IFluidHandles that it
         // serializes.
-        const serializer = new SummarySerializer(this.runtime.channelsRoutingContext);
+        const serializer = new GCSerializer(this.runtime.channelsRoutingContext);
 
         for (let row = 0; row < this.rowCount; row++) {
             for (let col = 0; col < this.colCount; col++) {

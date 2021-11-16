@@ -48,7 +48,7 @@ import {
     parseHandles,
     SharedObject,
     ISharedObjectEvents,
-    SummarySerializer,
+    GCSerializer,
 } from "@fluidframework/shared-object-base";
 import { IEventThisPlaceHolder } from "@fluidframework/common-definitions";
 import { IGarbageCollectionData } from "@fluidframework/runtime-definitions";
@@ -459,9 +459,9 @@ export abstract class SharedSegmentSequence<T extends ISegment>
      * Returns the GC data for this SharedMatrix. All the IFluidHandle's represent routes to other objects.
      */
     protected getGCDataCore(): IGarbageCollectionData {
-        // Create a SummarySerializer and use it to serialize all the cells. It keeps track of all IFluidHandles that it
+        // Create a GCSerializer and use it to serialize all the cells. It keeps track of all IFluidHandles that it
         // serializes.
-        const serializer = new SummarySerializer(this.runtime.channelsRoutingContext);
+        const serializer = new GCSerializer(this.runtime.channelsRoutingContext);
 
         if (this.intervalMapKernel.size > 0) {
             this.intervalMapKernel.serialize(serializer);
