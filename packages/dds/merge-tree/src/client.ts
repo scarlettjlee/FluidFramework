@@ -10,6 +10,7 @@ import { ISequencedDocumentMessage, ITree, MessageType } from "@fluidframework/p
 import { IFluidDataStoreRuntime, IChannelStorageService } from "@fluidframework/datastore-definitions";
 import { ITelemetryLogger } from "@fluidframework/common-definitions";
 import { assert, Trace } from "@fluidframework/common-utils";
+import { getHandles } from "@fluidframework/runtime-utils";
 import { LoggingError } from "@fluidframework/telemetry-utils";
 import { IIntegerRange } from "./base";
 import { RedBlackTree } from "./collections";
@@ -282,11 +283,11 @@ export class Client {
     }
 
     /**
-     * Serializes the data required for garbage collection. The IFluidHandles stored in all segements that haven't
+     * Serializes the data required for garbage collection. The IFluidHandles stored in all segments that haven't
      * been removed represent routes to other objects. We serialize the data in these segments using the passed in
      * serializer which keeps track of all serialized handles.
      */
-    public serializeGCData(handle: IFluidHandle, handleCollectingSerializer: IFluidSerializer): void {
+/*     public serializeGCData(handle: IFluidHandle, handleCollectingSerializer: IFluidSerializer): void {
         this.mergeTree.walkAllSegments(
             this.mergeTree.root,
             (seg) => {
@@ -299,6 +300,27 @@ export class Client {
                 return true;
             },
         );
+    } */
+
+    /**
+     * Collects the data required for garbage collection. The IFluidHandles stored in all segments that haven't
+     * been removed represent routes to other objects.
+     */
+    public collectGCHandles(): Set<string> {
+        const serializedRoutes: Set<string> = new Set();
+        this.mergeTree.walkAllSegments(
+            this.mergeTree.root,
+            (seg) => {
+                // Only examine segments that have not been removed.
+                if (seg.removedSeq === undefined) {
+                    getHandles(seg.clone().toJSONObject()).forEach((element) => {
+                        serializedRoutes.add(element);
+                    });
+                }
+                return true;
+            },
+        );
+        return serializedRoutes;
     }
 
     public getCollabWindow(): CollaborationWindow {

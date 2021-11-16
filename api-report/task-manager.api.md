@@ -80,6 +80,8 @@ export class TaskManager extends SharedObject<ITaskManagerEvents> implements ITa
     // (undocumented)
     applyStashedOp(): void;
     static create(runtime: IFluidDataStoreRuntime, id?: string): TaskManager;
+    // @internal (undocumented)
+    protected get GCRoot(): any;
     static getFactory(): IChannelFactory;
     // (undocumented)
     _getTaskQueues(): Map<string, string[]>;

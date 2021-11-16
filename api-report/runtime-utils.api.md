@@ -104,6 +104,9 @@ export function generateHandleContextPath(path: string, routeContext?: IFluidHan
 // @public (undocumented)
 export function getBlobSize(content: ISummaryBlob["content"]): number;
 
+// @public
+export function getHandles(input: any): string[];
+
 // @public (undocumented)
 export function getNormalizedObjectStoragePathParts(path: string): string[];
 

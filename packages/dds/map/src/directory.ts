@@ -19,6 +19,8 @@ import {
     IChannelServices,
     IChannelFactory,
 } from "@fluidframework/datastore-definitions";
+import { IGarbageCollectionData } from "@fluidframework/runtime-definitions";
+import { getHandles } from "@fluidframework/runtime-utils";
 import { SharedObject, ValueType } from "@fluidframework/shared-object-base";
 import * as path from "path-browserify";
 import {
@@ -615,6 +617,40 @@ export class SharedDirectory extends SharedObject<ISharedDirectoryEvents> implem
             // Old storage format
             this.populate(data as IDirectoryDataObject);
         }
+    }
+
+    /**
+     * Returns the GC data. All the IFluidHandle's represent routes to other objects.
+     */
+    protected getGCDataCore(): IGarbageCollectionData {
+        const serializedRoutes: Set<string> = new Set();
+
+        const stack: SubDirectory[] = [];
+        stack.push(this.root);
+
+        while (stack.length > 0) {
+            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+            const currentSubDir = stack.pop()!;
+            for (const value of currentSubDir.values()) {
+                getHandles(value).forEach((element) => {
+                    serializedRoutes.add(element);
+                });
+            }
+
+            for (const [, subdir] of currentSubDir.subdirectories()) {
+                stack.push(subdir as SubDirectory);
+            }
+        }
+
+        return {
+            gcNodes:{
+                ["/"]: Array.from(serializedRoutes),
+            },
+        };
+    }
+
+    protected get GCRoot(): any {
+        throw new Error("Method not implemented.");
     }
 
     /**

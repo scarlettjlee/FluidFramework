@@ -239,6 +239,13 @@ export class SharedCell<T = any> extends SharedObject<ISharedCellEvents<T>>
     }
 
     /**
+     * Get the cell content for garbage collection analysis
+     */
+    protected get GCRoot(): any {
+        return this.data;
+    }
+
+    /**
      * Initialize a local instance of cell
      */
     protected initializeLocalCore() {

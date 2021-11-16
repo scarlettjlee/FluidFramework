@@ -5,7 +5,6 @@
 ```ts
 
 import { EventEmitterWithErrorHandling } from '@fluidframework/telemetry-utils';
-import { FluidSerializer } from '@fluidframework/runtime-utils';
 import { IChannel } from '@fluidframework/datastore-definitions';
 import { IChannelAttributes } from '@fluidframework/datastore-definitions';
 import { IChannelServices } from '@fluidframework/datastore-definitions';
@@ -58,6 +57,7 @@ export abstract class SharedObject<TEvent extends ISharedObjectEvents = ISharedO
     get connected(): boolean;
     protected didAttach(): void;
     protected dirty(): void;
+    protected abstract get GCRoot(): any;
     getGCData(fullGC?: boolean): IGarbageCollectionData;
     protected getGCDataCore(): IGarbageCollectionData;
     readonly handle: IFluidHandle;
@@ -90,17 +90,6 @@ export abstract class SharedObject<TEvent extends ISharedObjectEvents = ISharedO
     protected abstract snapshotCore(serializer: IFluidSerializer): ITree;
     protected submitLocalMessage(content: any, localOpMetadata?: unknown): void;
     summarize(fullTree?: boolean, trackState?: boolean): ISummaryTreeWithStats;
-}
-
-// @public
-export class SummarySerializer extends FluidSerializer {
-    // (undocumented)
-    getSerializedRoutes(): string[];
-    // (undocumented)
-    protected serializeHandle(handle: IFluidHandle, bind: IFluidHandle): {
-        type: string;
-        url: string;
-    };
 }
 
 // @public

@@ -52,6 +52,7 @@ export class SharedMatrix<T = any> extends SharedObject implements IMatrixProduc
     static create<T>(runtime: IFluidDataStoreRuntime, id?: string): SharedMatrix<T>;
     // (undocumented)
     protected didAttach(): void;
+    protected get GCRoot(): any;
     // (undocumented)
     getCell(row: number, col: number): MatrixItem<T>;
     // (undocumented)

@@ -404,6 +404,14 @@ export class TaskManager extends SharedObject<ITaskManagerEvents> implements ITa
     }
 
     /**
+     * {@inheritDoc @fluidframework/shared-object-base#SharedObject.GCRoot}
+     * @internal
+     */
+    protected get GCRoot(): any {
+        return [...this.taskQueues.entries()];
+    }
+
+    /**
      * @internal
      */
     protected initializeLocalCore() { }

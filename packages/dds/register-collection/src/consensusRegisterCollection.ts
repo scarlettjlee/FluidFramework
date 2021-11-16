@@ -224,6 +224,15 @@ export class ConsensusRegisterCollection<T>
         }
     }
 
+    /**
+     * {@inheritDoc @fluidframework/shared-object-base#SharedObject.GCRoot}
+     */
+    protected get GCRoot(): any {
+        const dataObj: { [key: string]: ILocalData<T> } = {};
+        this.data.forEach((v, k) => { dataObj[k] = v; });
+        return dataObj;
+    }
+
     protected registerCore() { }
 
     protected onDisconnect() {}

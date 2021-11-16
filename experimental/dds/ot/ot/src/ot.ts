@@ -103,6 +103,10 @@ export abstract class SharedOT<TState, TOp> extends SharedObject {
         this.global = this.local = this.runtime.IFluidSerializer.parse(rawContent);
     }
 
+    protected get GCRoot(): any {
+        return this.global;
+    }
+
     protected registerCore() {}
 
     protected onDisconnect() { }

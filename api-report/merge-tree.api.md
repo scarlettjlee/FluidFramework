@@ -118,6 +118,7 @@ export class Client {
     applyMsg(msg: ISequencedDocumentMessage): void;
     // (undocumented)
     cloneFromSegments(): Client;
+    collectGCHandles(): Set<string>;
     // (undocumented)
     createTextHelper(): MergeTreeTextHelper;
     findReconnectionPostition(segment: ISegment, localSeq: number): number;
@@ -196,7 +197,6 @@ export class Client {
     removeLocalReference(lref: LocalReference): void;
     removeRangeLocal(start: number, end: number): IMergeTreeRemoveMsg | undefined;
     resolveRemoteClientPosition(remoteClientPosition: number, remoteClientRefSeq: number, remoteClientId: string): number | undefined;
-    serializeGCData(handle: IFluidHandle, handleCollectingSerializer: IFluidSerializer): void;
     // (undocumented)
     snapshot(runtime: IFluidDataStoreRuntime, handle: IFluidHandle, serializer: IFluidSerializer, catchUpMsgs: ISequencedDocumentMessage[]): ITree;
     // (undocumented)

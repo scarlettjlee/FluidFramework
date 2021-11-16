@@ -40,6 +40,7 @@ export class SharedCell<T = any> extends SharedObject<ISharedCellEvents<T>> impl
     static create(runtime: IFluidDataStoreRuntime, id?: string): SharedCell<any>;
     delete(): void;
     empty(): boolean;
+    protected get GCRoot(): any;
     get(): Serializable<T> | undefined;
     static getFactory(): IChannelFactory;
     protected initializeLocalCore(): void;
@@ -50,7 +51,7 @@ export class SharedCell<T = any> extends SharedObject<ISharedCellEvents<T>> impl
     protected registerCore(): void;
     set(value: Serializable<T>): void;
     protected snapshotCore(serializer: IFluidSerializer): ITree;
-    }
+}
 
 
 // (No @packageDocumentation comment for this package)

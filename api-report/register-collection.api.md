@@ -22,6 +22,8 @@ export class ConsensusRegisterCollection<T> extends SharedObject<IConsensusRegis
     // (undocumented)
     protected applyStashedOp(): () => void;
     static create<T>(runtime: IFluidDataStoreRuntime, id?: string): ConsensusRegisterCollection<T>;
+    // (undocumented)
+    protected get GCRoot(): any;
     static getFactory(): ConsensusRegisterCollectionFactory;
     // (undocumented)
     keys(): string[];

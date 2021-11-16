@@ -288,6 +288,13 @@ export class ConsensusOrderedCollection<T = any>
         this.data.loadFrom(content2);
     }
 
+    /**
+     * {@inheritDoc @fluidframework/shared-object-base#SharedObject.GCRoot}
+     */
+    protected get GCRoot(): any {
+        return [this.data, this.jobTracking.entries()];
+    }
+
     protected registerCore() {
         return;
     }

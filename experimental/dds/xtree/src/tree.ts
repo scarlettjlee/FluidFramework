@@ -50,6 +50,8 @@ export class SharedXTree extends SharedObject
      */
     protected async loadCore(storage: IChannelStorageService) { throw new Error("not implemented"); }
 
+    protected get GCRoot(): any { throw new Error("Method not implemented."); }
+
     protected processCore(rawMessage: ISequencedDocumentMessage, local: boolean, localOpMetadata: unknown) {
         // const msg = parseHandles(rawMessage, this.serializer);
         // const contents = msg.contents;

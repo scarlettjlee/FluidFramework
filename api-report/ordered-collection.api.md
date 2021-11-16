@@ -34,6 +34,8 @@ export class ConsensusOrderedCollection<T = any> extends SharedObject<IConsensus
     // (undocumented)
     protected completeCore(acquireId: string): void;
     // (undocumented)
+    protected get GCRoot(): any;
+    // (undocumented)
     protected isActive(): boolean;
     // (undocumented)
     protected loadCore(storage: IChannelStorageService): Promise<void>;

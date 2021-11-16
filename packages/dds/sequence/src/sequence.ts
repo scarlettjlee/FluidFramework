@@ -42,13 +42,12 @@ import {
     ReferenceType,
     SegmentGroup,
 } from "@fluidframework/merge-tree";
-import { ObjectStoragePartition } from "@fluidframework/runtime-utils";
+import { getHandles, ObjectStoragePartition } from "@fluidframework/runtime-utils";
 import {
     makeHandlesSerializable,
     parseHandles,
     SharedObject,
     ISharedObjectEvents,
-    SummarySerializer,
 } from "@fluidframework/shared-object-base";
 import { IEventThisPlaceHolder } from "@fluidframework/common-definitions";
 import { IGarbageCollectionData } from "@fluidframework/runtime-definitions";
@@ -459,21 +458,28 @@ export abstract class SharedSegmentSequence<T extends ISegment>
      * Returns the GC data for this SharedMatrix. All the IFluidHandle's represent routes to other objects.
      */
     protected getGCDataCore(): IGarbageCollectionData {
-        // Create a SummarySerializer and use it to serialize all the cells. It keeps track of all IFluidHandles that it
-        // serializes.
-        const serializer = new SummarySerializer(this.runtime.channelsRoutingContext);
+        const serializedRoutes = this.client.collectGCHandles();
 
         if (this.intervalMapKernel.size > 0) {
-            this.intervalMapKernel.serialize(serializer);
+            this.intervalMapKernel.forEach((value, key, map) => {
+                getHandles(value).forEach((element) => {
+                    serializedRoutes.add(element);
+                });
+            });
         }
-
-        this.client.serializeGCData(this.handle, serializer);
 
         return {
             gcNodes:{
-                ["/"]: serializer.getSerializedRoutes(),
+                ["/"]: Array.from(serializedRoutes),
             },
         };
+    }
+
+    /**
+     * Do not call this since getGCDataCore is implemented
+     */
+    protected get GCRoot(): any {
+        throw new Error("Method not implemented.");
     }
 
     /**

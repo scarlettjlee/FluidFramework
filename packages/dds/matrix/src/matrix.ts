@@ -21,10 +21,9 @@ import {
     makeHandlesSerializable,
     parseHandles,
     SharedObject,
-    SummarySerializer,
 } from "@fluidframework/shared-object-base";
 import { IGarbageCollectionData } from "@fluidframework/runtime-definitions";
-import { ObjectStoragePartition } from "@fluidframework/runtime-utils";
+import { getHandles, ObjectStoragePartition } from "@fluidframework/runtime-utils";
 import {
     IMatrixProducer,
     IMatrixConsumer,
@@ -463,21 +462,28 @@ export class SharedMatrix<T = any>
      * objects.
      */
     protected getGCDataCore(): IGarbageCollectionData {
-        // Create a SummarySerializer and use it to serialize all the cells. It keeps track of all IFluidHandles that it
-        // serializes.
-        const serializer = new SummarySerializer(this.runtime.channelsRoutingContext);
+        const serializedRoutes: Set<string> = new Set();
 
         for (let row = 0; row < this.rowCount; row++) {
             for (let col = 0; col < this.colCount; col++) {
-                serializer.stringify(this.getCell(row, col), this.handle);
+                getHandles(this.getCell(row, col)).forEach((element) => {
+                    serializedRoutes.add(element);
+                });
             }
         }
 
         return {
             gcNodes:{
-                ["/"]: serializer.getSerializedRoutes(),
+                ["/"]: Array.from(serializedRoutes),
             },
         };
+    }
+
+    /**
+     * Do not call this since getGCDataCore is overridden.
+     */
+    protected get GCRoot(): any {
+        throw new Error("Method not implemented.");
     }
 
     /**
