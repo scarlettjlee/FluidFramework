@@ -50,7 +50,6 @@ import {
 import { DriverHeader, IDocumentStorageService, ISummaryContext } from "@fluidframework/driver-definitions";
 import { readAndParse, BlobAggregationStorage } from "@fluidframework/driver-utils";
 import {
-    CreateProcessingError,
     DataCorruptionError,
     GenericError,
     UsageError,
@@ -801,16 +800,6 @@ export class ContainerRuntime extends TypedEventEmitter<IContainerRuntimeEvents>
         return this._storage!;
     }
 
-    public get reSubmitFn(): (
-        type: ContainerMessageType,
-        content: any,
-        localOpMetadata: unknown,
-        opMetadata: Record<string, unknown> | undefined,
-    ) => void {
-        // eslint-disable-next-line @typescript-eslint/unbound-method
-        return this.reSubmit;
-    }
-
     public get closeFn(): (error?: ICriticalContainerError) => void {
         return this.context.closeFn;
     }
@@ -1069,8 +1058,17 @@ export class ContainerRuntime extends TypedEventEmitter<IContainerRuntimeEvents>
         this.deltaSender = this.deltaManager;
 
         this.pendingStateManager = new PendingStateManager(
-            this,
-            async (type, content) => this.applyStashedOp(type, content),
+            {
+                applyStashedOp: this.applyStashedOp.bind(this),
+                clientId: ()=>this.clientId,
+                close: this.closeFn,
+                connected: ()=>this.connected,
+                flush: this.flush.bind(this),
+                flushMode: ()=>this.flushMode,
+                reSubmit: this.reSubmit.bind(this),
+                rollback: this.rollback.bind(this),
+                setFlushMode: (mode)=>this.setFlushMode(mode),
+            },
             context.pendingLocalState as IPendingLocalState);
 
         this.context.quorum.on("removeMember", (clientId: string) => {
@@ -1661,18 +1659,21 @@ export class ContainerRuntime extends TypedEventEmitter<IContainerRuntimeEvents>
         try {
             this.trackOrderSequentiallyCalls(callback);
             this.flush();
+        } finally{
             this.setFlushMode(savedFlushMode);
-        } catch(error) {
-            this.closeFn(CreateProcessingError(error, "orderSequentially"));
-            throw error; // throw the original error for the consumer of the runtime
         }
     }
 
     private trackOrderSequentiallyCalls(callback: () => void): void {
+        const checkpoint = this.pendingStateManager.checkpoint();
         try {
             this._orderSequentiallyCalls++;
             callback();
-        } finally {
+        } catch(e) {
+            checkpoint.rollback();
+            throw e;
+        }
+        finally {
             this._orderSequentiallyCalls--;
         }
     }
@@ -2350,6 +2351,23 @@ export class ContainerRuntime extends TypedEventEmitter<IContainerRuntimeEvents>
                 break;
             default:
                 unreachableCase(type, `Unknown ContainerMessageType: ${type}`);
+        }
+    }
+
+    private rollback(
+        type: ContainerMessageType,
+        content: any,
+        localOpMetadata: unknown,
+        opMetadata: Record<string, unknown> | undefined,
+    ) {
+        switch (type) {
+            case ContainerMessageType.FluidDataStoreOp:
+                // For Operations, call resubmitDataStoreOp which will find the right store
+                // and trigger resubmission on it.
+                this.dataStores.rollbackDataStoreOp(content, localOpMetadata);
+                break;
+            default:
+                unreachableCase(type as never, `Unknown ContainerMessageType: ${type}`);
         }
     }
 

@@ -5,13 +5,14 @@
 
 import { IDisposable } from "@fluidframework/common-definitions";
 import { assert, Lazy } from "@fluidframework/common-utils";
-import { DataProcessingError } from "@fluidframework/container-utils";
+import { ICriticalContainerError } from "@fluidframework/container-definitions";
+import { CreateProcessingError, DataProcessingError } from "@fluidframework/container-utils";
 import {
     ISequencedDocumentMessage,
 } from "@fluidframework/protocol-definitions";
 import { FlushMode } from "@fluidframework/runtime-definitions";
 import Deque from "double-ended-queue";
-import { ContainerRuntime, ContainerMessageType, isRuntimeMessage } from "./containerRuntime";
+import { ContainerMessageType, isRuntimeMessage } from "./containerRuntime";
 
 /**
  * This represents a message that has been submitted and is added to the pending queue when `submit` is called on the
@@ -57,6 +58,27 @@ export interface IPendingLocalState {
     pendingStates: IPendingState[];
 }
 
+export interface Handler{
+    connected(): boolean,
+    clientId(): string | undefined,
+    flushMode(): FlushMode,
+    setFlushMode(mode: FlushMode),
+    close(error?: ICriticalContainerError): void,
+    applyStashedOp: (type: ContainerMessageType, content: ISequencedDocumentMessage) => Promise<unknown>,
+    flush(),
+    reSubmit(
+        type: ContainerMessageType,
+        content: any,
+        localOpMetadata: unknown,
+        opMetadata: Record<string, unknown> | undefined,
+    ),
+    rollback(
+        type: ContainerMessageType,
+        content: any,
+        localOpMetadata: unknown,
+        opMetadata: Record<string, unknown> | undefined)
+}
+
 /**
  * PendingStateManager is responsible for maintaining the messages that have not been sent or have not yet been
  * acknowledged by the server. It also maintains the batch information for both automatically and manually flushed
@@ -88,10 +110,6 @@ export class PendingStateManager implements IDisposable {
 
     private clientId: string | undefined;
 
-    private get connected(): boolean {
-        return this.containerRuntime.connected;
-    }
-
     /**
      * Called to check if there are any pending messages in the pending state queue.
      * @returns A boolean indicating whether there are messages or not.
@@ -113,8 +131,7 @@ export class PendingStateManager implements IDisposable {
     }
 
     constructor(
-        private readonly containerRuntime: ContainerRuntime,
-        private readonly applyStashedOp: (type, content) => Promise<unknown>,
+        private readonly stateHandler: Handler,
         initialState: IPendingLocalState | undefined,
     ) {
         this.initialStates = new Deque<IPendingState>(initialState?.pendingStates ?? []);
@@ -200,7 +217,7 @@ export class PendingStateManager implements IDisposable {
     public onFlush() {
         // If the FlushMode is Immediate, we should not track this flush call as it is only applicable when FlushMode
         // is TurnBased.
-        if (this.containerRuntime.flushMode === FlushMode.Immediate) {
+        if (this.stateHandler.flushMode() === FlushMode.Immediate) {
             return;
         }
 
@@ -235,7 +252,8 @@ export class PendingStateManager implements IDisposable {
                 }
 
                 // applyStashedOp will cause the DDS to behave as if it has sent the op but not actually send it
-                const localOpMetadata = await this.applyStashedOp(nextState.messageType, nextState.content);
+                const localOpMetadata =
+                    await this.stateHandler.applyStashedOp(nextState.messageType, nextState.content);
                 nextState.localOpMetadata = localOpMetadata;
             }
 
@@ -262,6 +280,22 @@ export class PendingStateManager implements IDisposable {
         } else {
             return this.processRemoteMessage(message);
         }
+    }
+
+    public checkpoint() {
+        const checkpointHead = this.pendingStates.peekBack();
+        return{
+            rollback:()=>{
+                try{
+                    while(this.pendingStates.peekBack() !== checkpointHead) {
+                        this.rollbackNextPendingState();
+                    }
+                }catch(err) {
+                    this.stateHandler.close(CreateProcessingError(err, "checkpointRollback"));
+                    throw err;
+                }
+            },
+        };
     }
 
     /**
@@ -350,7 +384,7 @@ export class PendingStateManager implements IDisposable {
                 },
             );
 
-            this.containerRuntime.closeFn(error);
+            this.stateHandler.close(error);
             return;
         }
 
@@ -441,17 +475,41 @@ export class PendingStateManager implements IDisposable {
         return nextPendingState;
     }
 
+    public rollbackNextPendingState() {
+        const pendingStatesCount = this.pendingStates.length;
+        if (pendingStatesCount === 0) {
+            return;
+        }
+
+        this.pendingMessagesCount--;
+
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        const pendingState = this.pendingStates.pop()!;
+        switch (pendingState.type) {
+            case "message":
+                {
+                    this.stateHandler.rollback(
+                        pendingState.messageType,
+                        pendingState.content,
+                        pendingState.localOpMetadata,
+                        pendingState.opMetadata);
+                }
+                break;
+            default:
+        }
+    }
+
     /**
      * Called when the Container's connection state changes. If the Container gets connected, it replays all the pending
      * states in its queue. This includes setting the FlushMode and triggering resubmission of unacked ops.
      */
     public replayPendingStates() {
-        assert(this.connected, 0x172 /* "The connection state is not consistent with the runtime" */);
+        assert(this.stateHandler.connected(), 0x172 /* "The connection state is not consistent with the runtime" */);
 
         // This assert suggests we are about to send same ops twice, which will result in data loss.
-        assert(this.clientId !== this.containerRuntime.clientId,
+        assert(this.clientId !== this.stateHandler.clientId(),
             0x173 /* "replayPendingStates called twice for same clientId!" */);
-        this.clientId = this.containerRuntime.clientId;
+        this.clientId = this.stateHandler.clientId();
 
         assert(this.initialStates.isEmpty(), 0x174 /* "initial states should be empty before replaying pending" */);
 
@@ -464,7 +522,7 @@ export class PendingStateManager implements IDisposable {
         this.pendingMessagesCount = 0;
 
         // Save the current FlushMode so that we can revert it back after replaying the states.
-        const savedFlushMode = this.containerRuntime.flushMode;
+        const savedFlushMode = this.stateHandler.flushMode();
 
         // Process exactly `pendingStatesCount` items in the queue as it represents the number of states that were
         // pending when we connected. This is important because the `reSubmitFn` might add more items in the queue
@@ -475,7 +533,7 @@ export class PendingStateManager implements IDisposable {
             switch (pendingState.type) {
                 case "message":
                     {
-                        this.containerRuntime.reSubmitFn(
+                        this.stateHandler.reSubmit(
                             pendingState.messageType,
                             pendingState.content,
                             pendingState.localOpMetadata,
@@ -484,12 +542,12 @@ export class PendingStateManager implements IDisposable {
                     break;
                 case "flushMode":
                     {
-                        this.containerRuntime.setFlushMode(pendingState.flushMode);
+                        this.stateHandler.setFlushMode(pendingState.flushMode);
                     }
                     break;
                 case "flush":
                     {
-                        this.containerRuntime.flush();
+                        this.stateHandler.flush();
                     }
                     break;
                 default:
@@ -499,6 +557,6 @@ export class PendingStateManager implements IDisposable {
         }
 
         // Revert the FlushMode.
-        this.containerRuntime.setFlushMode(savedFlushMode);
+        this.stateHandler.setFlushMode(savedFlushMode);
     }
 }
