@@ -15,7 +15,7 @@ import { INewFileInfo, createCacheSnapshotKey, ISnapshotContents } from "../odsp
 import { LocalPersistentCache } from "../odspCache";
 import { mockFetchOk } from "./mockFetch";
 
-const createUtLocalCache = () => new LocalPersistentCache(2000);
+const createUtLocalCache = () => new LocalPersistentCache();
 
 describe("Create New Utils Tests", () => {
     const documentAttributes: api.IDocumentAttributes = {
@@ -120,12 +120,14 @@ describe("Create New Utils Tests", () => {
                     epochTracker,
                     fileEntry,
                     true,
+                    false,
                 ) ,
                 { itemId: "itemId1", id: "Summary handle"},
                 { "x-fluid-epoch": "epoch1" },
                 );
         const snapshot = await epochTracker.get(createCacheSnapshotKey(odspResolvedUrl));
         test(snapshot);
+        await epochTracker.removeEntries().catch(() => {});
     });
 
     it("Should save share link information received during createNewFluidFile", async () => {
@@ -168,6 +170,7 @@ describe("Create New Utils Tests", () => {
                     epochTracker,
                     fileEntry,
                     false,
+                    false,
                 ),
                 { itemId: "mockItemId", id: "mockId", sharingLink: mockSharingLink, sharingLinkErrorReason: undefined},
                 { "x-fluid-epoch": "epoch1" },
@@ -189,6 +192,7 @@ describe("Create New Utils Tests", () => {
                 epochTracker,
                 fileEntry,
                 false,
+                false,
             ),
             { itemId: "mockItemId", id: "mockId", sharingLink: undefined, sharingLinkErrorReason: mockError},
             { "x-fluid-epoch": "epoch1" },
@@ -198,5 +202,6 @@ describe("Create New Utils Tests", () => {
             link: undefined,
             error: mockError,
         });
+        await epochTracker.removeEntries().catch(() => {});
     });
 });

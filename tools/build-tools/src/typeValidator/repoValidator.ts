@@ -9,9 +9,9 @@ import { IFluidRepoPackageEntry } from "../common/fluidRepo";
 import { getPackageManifest } from "../common/fluidUtils";
 import { FluidRepoBuild } from "../fluidBuild/fluidRepoBuild"
 import { getResolvedFluidRoot } from "../common/fluidUtils";
-import { getPackageDetails } from "./packageJson";
-import { BreakingIncrement, BrokenTypes, validatePackage } from "./packageValidator";
-import { enableLogging, log } from "./validatorUtils";
+import { getPackageDetailsOrThrow } from "./packageJson";
+import { BrokenTypes, validatePackage } from "./packageValidator";
+import { BreakingIncrement, log } from "./validatorUtils";
 
 /**
  * Groupings of packages that should be versioned in lockstep
@@ -31,10 +31,16 @@ interface PackageGroup {
 
 export interface IValidationOptions {
     /**
-     * Enable verbose logging for specific packages rather than everything
+     * Only check the specified packages/groups rather than everything
+     * Correctness for transitive type breaks is not expected with this option
      */
-    logForPackages?: Set<string>;
+    includeOnly?: Set<string>;
 }
+
+/**
+ * Package name: {break severity, package's group}
+ */
+export type RepoValidationResult = Map<string, { level: BreakingIncrement, group?: string }>;
 
 function buildPackageGroups(repoRoot: string): PackageGroup[] {
     const manifest = getPackageManifest(repoRoot);
@@ -65,7 +71,7 @@ function buildPackageGroups(repoRoot: string): PackageGroup[] {
     for (const name in repoPackages) {
         addGroup(name, repoPackages[name]);
     }
-    console.log(groups);
+    log(groups);
     return groups;
 }
 
@@ -114,7 +120,7 @@ function setPackageGroupIncrement(
 }
 
 
-export async function validateRepo(options?: IValidationOptions) {
+export async function validateRepo(options?: IValidationOptions): Promise<RepoValidationResult> {
     // Get all the repo packages in topological order
     const repoRoot = await getResolvedFluidRoot();
     const repo = new FluidRepoBuild(repoRoot, false);
@@ -126,22 +132,30 @@ export async function validateRepo(options?: IValidationOptions) {
 
     const groupBreaks = new Map<string, BreakingIncrement>();
     const allBrokenTypes: BrokenTypes = new Map();
-    const breakSummary: any[] = [];
+    const breakResult: RepoValidationResult = new Map();
+
+    // filter to only included packages if specified
+    if (options?.includeOnly !== undefined) {
+        packages.forEach((buildPkg, pkgName) => {
+            const pkgJsonPath = path.join(buildPkg.pkg.directory, "package.json");
+            const pkgJsonRelativePath = path.relative(repoRoot, pkgJsonPath);
+            const group = groupForPackage(packageGroups, pkgJsonRelativePath);
+            if (!(options.includeOnly?.has(pkgName) || (group !== undefined && options.includeOnly?.has(group)))) {
+                    packages.delete(pkgName);
+            }
+        });
+    }
 
     for (let i = 0; packages.size > 0; i++) {
-        packages.forEach((buildPkg, pkgName) => {
+        packages.forEach(async (buildPkg, pkgName) => {
             if (buildPkg.level === i) {
-                if (options?.logForPackages?.has(pkgName)) {
-                    enableLogging(true);
-                }
-
-                const packageData = getPackageDetails(buildPkg.pkg.directory);
+                const packageData = await getPackageDetailsOrThrow(buildPkg.pkg.directory);
                 const pkgJsonPath = path.join(buildPkg.pkg.directory, "package.json");
                 const pkgJsonRelativePath = path.relative(repoRoot, pkgJsonPath);
                 if (packageData.oldVersions.length > 0) {
                     log(`${pkgName}, ${buildPkg.level}`);
 
-                    let { increment, brokenTypes} = validatePackage(packageData, buildPkg.pkg.directory, allBrokenTypes);
+                    let { increment, brokenTypes} = await validatePackage(packageData, buildPkg.pkg.directory, allBrokenTypes);
 
                     brokenTypes.forEach((v, k) => allBrokenTypes.set(k, v));
 
@@ -149,30 +163,32 @@ export async function validateRepo(options?: IValidationOptions) {
                     const groupName = setPackageGroupIncrement(
                         pkgJsonRelativePath, increment, packageGroups, groupBreaks);
 
-                    breakSummary.push({ name: packageData.name, level: increment, group: groupName });
+                    if (breakResult.has(packageData.name)) {
+                        throw new Error("Encountered duplicated package name");
+                    }
+
+                    breakResult.set(packageData.name, { level: increment, group: groupName });
                 }
 
                 packages.delete(pkgName);
-
-                if (options?.logForPackages?.has(pkgName)) {
-                    enableLogging(false);
-                }
             }
         })
     }
 
     // Check for inherited group breaks
-    for (const pkgBreak of breakSummary) {
-        if (pkgBreak.group !== undefined) {
-            const groupLevel = groupBreaks.get(pkgBreak.group)!;
-            if (groupLevel > pkgBreak.level) {
-                pkgBreak.level = groupLevel;
-                log(`${pkgBreak.name} inherited break from its group ${pkgBreak.group}`);
+    breakResult.forEach((value, key) => {
+        if (value.group !== undefined) {
+            const groupLevel = groupBreaks.get(value.group)!;
+            if (groupLevel > value.level) {
+                value.level = groupLevel;
+                log(`${key} inherited break from its group ${value.group}`);
             }
         }
-    }
+    });
 
-    for (const pkgBreak of breakSummary) {
-        console.log(pkgBreak);
-    }
+    breakResult.forEach((value, key) => {
+        console.log(`${key}: ${value.level} ${value.group}`);
+    });
+
+    return breakResult;
 }

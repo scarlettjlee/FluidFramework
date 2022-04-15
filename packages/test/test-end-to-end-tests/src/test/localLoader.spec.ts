@@ -9,8 +9,8 @@ import {
     DataObject,
     DataObjectFactory,
     IDataObjectProps } from "@fluidframework/aqueduct";
-import { IContainer } from "@fluidframework/container-definitions";
-import { IFluidHandle, IFluidCodeDetails, IRequest } from "@fluidframework/core-interfaces";
+import { IContainer, IFluidCodeDetails } from "@fluidframework/container-definitions";
+import { IFluidHandle, IRequest } from "@fluidframework/core-interfaces";
 import { SharedCounter } from "@fluidframework/counter";
 import { IFluidDataStoreRuntime } from "@fluidframework/datastore-definitions";
 import { IContainerRuntimeBase, IFluidDataStoreFactory } from "@fluidframework/runtime-definitions";
@@ -76,7 +76,7 @@ export class TestDataObject extends DataObject {
     }
 
     protected async hasInitialized() {
-        const counterHandle = await this.root.wait<IFluidHandle<SharedCounter>>(counterKey);
+        const counterHandle = this.root.get<IFluidHandle<SharedCounter>>(counterKey);
         assert(counterHandle);
         this.counter = await counterHandle.get();
     }

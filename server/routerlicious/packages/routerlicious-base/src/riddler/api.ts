@@ -11,9 +11,9 @@ import {
     ITenantOrderer,
     ITenantCustomData,
 } from "@fluidframework/server-services-core";
+import { handleResponse } from "@fluidframework/server-services";
 import { Router } from "express";
 import { getParam } from "@fluidframework/server-services-utils";
-import { handleResponse } from "../utils";
 import { TenantManager } from "./tenantManager";
 
 export function create(
@@ -40,7 +40,7 @@ export function create(
     router.post("/tenants/:id/validate", (request, response) => {
         const tenantId = getParam(request.params, "id");
         const includeDisabledTenant = getIncludeDisabledFlag(request);
-        const validP = manager.validateToken(tenantId, request.body.token,  includeDisabledTenant);
+        const validP = manager.validateToken(tenantId, request.body.token, includeDisabledTenant);
         handleResponse(validP, response);
     });
 
@@ -66,10 +66,10 @@ export function create(
     /**
      * Retrieves the api key for the tenant
      */
-    router.get("/tenants/:id/key", (request, response) => {
+    router.get("/tenants/:id/keys", (request, response) => {
         const tenantId = getParam(request.params, "id");
         const includeDisabledTenant = getIncludeDisabledFlag(request);
-        const tenantP = manager.getTenantKey(tenantId, includeDisabledTenant);
+        const tenantP = manager.getTenantKeys(tenantId, includeDisabledTenant);
         handleResponse(tenantP, response);
     });
 
@@ -103,8 +103,9 @@ export function create(
      */
     router.put("/tenants/:id/key", (request, response) => {
         const tenantId = getParam(request.params, "id");
-        const refreshKeyP = manager.refreshTenantKey(tenantId);
-        return handleResponse(refreshKeyP, response);
+        const keyName = request.body.keyName as string;
+        const refreshKeyP = manager.refreshTenantKey(tenantId, keyName);
+        handleResponse(refreshKeyP, response);
     });
 
     /**

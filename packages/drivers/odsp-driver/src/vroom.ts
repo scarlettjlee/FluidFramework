@@ -3,7 +3,8 @@
  * Licensed under the MIT License.
  */
 
-import { ITelemetryLogger } from "@fluidframework/common-definitions";
+import { v4 as uuid } from "uuid";
+import { ITelemetryLogger, ITelemetryProperties } from "@fluidframework/common-definitions";
 import { PerformanceEvent } from "@fluidframework/telemetry-utils";
 import { InstrumentedStorageTokenFetcher, IOdspUrlParts } from "@fluidframework/odsp-driver-definitions";
 import { ISocketStorageDiscovery } from "./contracts";
@@ -13,8 +14,8 @@ import { EpochTracker } from "./epochTracker";
 import { runWithRetry } from "./retryUtils";
 
 interface IJoinSessionBody {
-    requestSocketToken?: boolean;
-    guestDisplayName?: string;
+    requestSocketToken: boolean;
+    guestDisplayName: string;
 }
 
 /**
@@ -28,6 +29,7 @@ interface IJoinSessionBody {
  * @param requestSocketToken - flag indicating whether joinSession is expected to return access token
  * which is used when establishing websocket connection with collab session backend service.
  * @param options - Options to fetch the token.
+ * @param disableJoinSessionRefresh - Whether the caller wants to disable refreshing join session periodically.
  * @param guestDisplayName - display name used to identify guest user joining a session.
  * This is optional and used only when collab session is being joined via invite.
  */
@@ -40,49 +42,59 @@ export async function fetchJoinSession(
     epochTracker: EpochTracker,
     requestSocketToken: boolean,
     options: TokenFetchOptionsEx,
+    disableJoinSessionRefresh: boolean | undefined,
     guestDisplayName?: string,
 ): Promise<ISocketStorageDiscovery> {
     const token = await getStorageToken(options, "JoinSession");
 
-    const extraProps = options.refresh
+    const tokenRefreshProps = options.refresh
         ? { hasClaims: !!options.claims, hasTenantId: !!options.tenantId }
         : {};
+    const details: ITelemetryProperties = {
+        refreshedToken: options.refresh,
+        requestSocketToken,
+        ...tokenRefreshProps,
+    };
+
     return PerformanceEvent.timedExecAsync(
         logger, {
             eventName: "JoinSession",
             attempts: options.refresh ? 2 : 1,
-            ...extraProps,
+            details: JSON.stringify(details),
+            ...tokenRefreshProps,
         },
         async (event) => {
-            // TODO Extract the auth header-vs-query logic out
             const siteOrigin = getOrigin(urlParts.siteUrl);
-            let queryParams = `access_token=${token}`;
-            let headers = {};
-            if (queryParams.length > 2048) {
-                queryParams = "";
-                headers = { Authorization: `Bearer ${token}` };
+            const formBoundary = uuid();
+            let postBody = `--${formBoundary}\r\n`;
+            postBody += `Authorization: Bearer ${token}\r\n`;
+            postBody += `X-HTTP-Method-Override: POST\r\n`;
+            postBody += `Content-Type: application/json\r\n`;
+            if (!disableJoinSessionRefresh) {
+                postBody += `prefer: FluidRemoveCheckAccess\r\n`;
             }
-            let body: IJoinSessionBody | undefined;
-            if (requestSocketToken || guestDisplayName) {
-                body = {};
-                if (requestSocketToken) {
-                    body.requestSocketToken = true;
-                }
-                if (guestDisplayName) {
-                    body.guestDisplayName = guestDisplayName;
-                }
-                // IMPORTANT: Must set content-type header explicitly to application/json when request has body.
-                // By default, request will use text/plain as content-type and will be rejected by backend.
-                headers["Content-Type"] = "application/json";
+            postBody += `_post: 1\r\n`;
+            // Name should be there when socket token is requested and vice-versa.
+            if (requestSocketToken && guestDisplayName !== undefined) {
+                const body: IJoinSessionBody = {
+                    requestSocketToken: true,
+                    guestDisplayName,
+                };
+                postBody += `\r\n${JSON.stringify(body)}\r\n`;
             }
+            postBody += `\r\n--${formBoundary}--`;
+            const headers: {[index: string]: string} = {
+                "Content-Type": `multipart/form-data;boundary=${formBoundary}`,
+            };
 
             const response = await runWithRetry(
                 async () => epochTracker.fetchAndParseAsJSON<ISocketStorageDiscovery>(
                     `${getApiRoot(siteOrigin)}/drives/${
                         urlParts.driveId
-                    }/items/${urlParts.itemId}/${path}?${queryParams}`,
-                    { method, headers, body: body ? JSON.stringify(body) : undefined },
+                    }/items/${urlParts.itemId}/${path}?ump=1`,
+                    { method, headers, body: postBody },
                     "joinSession",
+                    true,
                 ),
                 "joinSession",
                 logger,
@@ -94,10 +106,11 @@ export async function fetchJoinSession(
 
             // TODO SPO-specific telemetry
             event.end({
-                ...response.commonSpoHeaders,
+                ...response.propsToLog,
                 // pushV2 websocket urls will contain pushf
                 pushv2: socketUrl.includes("pushf"),
                 webSocketHostName,
+                refreshSessionDurationSeconds: response.content.refreshSessionDurationSeconds,
             });
 
             if (response.content.runtimeTenantId && !response.content.tenantId) {

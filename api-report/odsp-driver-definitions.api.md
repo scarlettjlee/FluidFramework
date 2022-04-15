@@ -5,6 +5,7 @@
 ```ts
 
 import { DriverError } from '@fluidframework/driver-definitions';
+import { IDriverErrorBase } from '@fluidframework/driver-definitions';
 import { IFluidResolvedUrl } from '@fluidframework/driver-definitions';
 
 // @public (undocumented)
@@ -19,6 +20,7 @@ export interface HostStoragePolicy {
     // (undocumented)
     enableRedeemFallback?: boolean;
     enableShareLinkWithCreate?: boolean;
+    // @deprecated (undocumented)
     fetchBinarySnapshotFormat?: boolean;
     isolateSocketCache?: boolean;
     // (undocumented)
@@ -36,6 +38,7 @@ export interface ICacheEntry extends IEntry {
 
 // @public (undocumented)
 export interface ICollabSessionOptions {
+    forceAccessTokenViaAuthorizationHeader?: boolean;
     unauthenticatedUserDisplayName?: string;
 }
 
@@ -58,16 +61,9 @@ export interface IFileEntry {
 export type InstrumentedStorageTokenFetcher = (options: TokenFetchOptions, name: string, alwaysRecordTokenFetchTelemetry?: boolean) => Promise<string | null>;
 
 // @public
-export interface IOdspError {
-    // (undocumented)
-    canRetry: boolean;
+export interface IOdspError extends Omit<IDriverErrorBase, "errorType"> {
     // (undocumented)
     readonly errorType: OdspErrorType;
-    // (undocumented)
-    readonly message: string;
-    // (undocumented)
-    online?: string;
-    // (undocumented)
     serverEpoch?: string;
 }
 
@@ -91,10 +87,10 @@ export interface IOdspResolvedUrl extends IFluidResolvedUrl, IOdspUrlParts {
     // (undocumented)
     hashedDocumentId: string;
     // (undocumented)
+    isClpCompliantApp?: boolean;
+    // (undocumented)
     odspResolvedUrl: true;
     shareLinkInfo?: ShareLinkInfoType;
-    // @deprecated (undocumented)
-    sharingLinkToRedeem?: string;
     // (undocumented)
     summarizer: boolean;
     // (undocumented)
@@ -160,6 +156,8 @@ export enum OdspErrorType {
     // (undocumented)
     fluidNotEnabled = "fluidNotEnabled",
     invalidFileNameError = "invalidFileNameError",
+    // (undocumented)
+    locationRedirection = "locationRedirection",
     outOfStorageError = "outOfStorageError",
     // (undocumented)
     serviceReadOnly = "serviceReadOnly",

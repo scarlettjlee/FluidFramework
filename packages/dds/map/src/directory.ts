@@ -4,12 +4,10 @@
  */
 
 import { assert,TypedEventEmitter } from "@fluidframework/common-utils";
+import { UsageError } from "@fluidframework/container-utils";
 import { readAndParse } from "@fluidframework/driver-utils";
-import { addBlobToTree } from "@fluidframework/protocol-base";
-import { convertToSummaryTreeWithStats } from "@fluidframework/runtime-utils";
 import {
     ISequencedDocumentMessage,
-    ITree,
     MessageType,
 } from "@fluidframework/protocol-definitions";
 import {
@@ -21,6 +19,7 @@ import {
 } from "@fluidframework/datastore-definitions";
 import { ISummaryTreeWithStats } from "@fluidframework/runtime-definitions";
 import { IFluidSerializer, SharedObject, ValueType } from "@fluidframework/shared-object-base";
+import { SummaryTreeBuilder } from "@fluidframework/runtime-utils";
 import * as path from "path-browserify";
 import {
     IDirectory,
@@ -205,10 +204,10 @@ export interface IDirectoryNewStorageFormat {
     content: IDirectoryDataObject;
 }
 
-function serializeDirectory(root: SubDirectory, serializer: IFluidSerializer): ITree {
+function serializeDirectory(root: SubDirectory, serializer: IFluidSerializer): ISummaryTreeWithStats {
     const MinValueSizeSeparateSnapshotBlob = 8 * 1024;
 
-    const tree: ITree = { entries: [] };
+    const builder = new SummaryTreeBuilder();
     let counter = 0;
     const blobs: string[] = [];
 
@@ -242,7 +241,7 @@ function serializeDirectory(root: SubDirectory, serializer: IFluidSerializer): I
                 const blobName = `blob${counter}`;
                 counter++;
                 blobs.push(blobName);
-                addBlobToTree(tree, blobName, extraContent);
+                builder.addBlob(blobName, JSON.stringify(extraContent));
             } else {
                 currentSubDirObject.storage[key] = result;
             }
@@ -262,9 +261,9 @@ function serializeDirectory(root: SubDirectory, serializer: IFluidSerializer): I
         blobs,
         content,
     };
-    addBlobToTree(tree, snapshotFileName, newFormat);
+    builder.addBlob(snapshotFileName, JSON.stringify(newFormat));
 
-    return tree;
+    return builder.getSummaryTree();
 }
 
 /**
@@ -419,18 +418,19 @@ export class SharedDirectory extends SharedObject<ISharedDirectoryEvents> implem
     }
 
     /**
-     * {@inheritDoc IDirectory.wait}
-     */
-    public async wait<T = any>(key: string): Promise<T> {
-        return this.root.wait<T>(key);
-    }
-
-    /**
      * {@inheritDoc IDirectory.set}
      */
     public set<T = any>(key: string, value: T): this {
         this.root.set(key, value);
         return this;
+    }
+
+    public dispose(error?: Error): void {
+        this.root.dispose(error);
+    }
+
+    public get disposed(): boolean {
+        return this.root.disposed;
     }
 
     /**
@@ -487,6 +487,13 @@ export class SharedDirectory extends SharedObject<ISharedDirectoryEvents> implem
      */
     public entries(): IterableIterator<[string, any]> {
         return this.root.entries();
+    }
+
+    /**
+     * {@inheritDoc IDirectory.countSubDirectory}
+     */
+    public countSubDirectory(): number {
+        return this.root.countSubDirectory();
     }
 
     /**
@@ -564,9 +571,8 @@ export class SharedDirectory extends SharedObject<ISharedDirectoryEvents> implem
      * {@inheritDoc @fluidframework/shared-object-base#SharedObject.summarizeCore}
      * @internal
      */
-    protected summarizeCore(serializer: IFluidSerializer, fullTree: boolean): ISummaryTreeWithStats {
-        const snapshot = serializeDirectory(this.root, serializer);
-        return convertToSummaryTreeWithStats(snapshot, fullTree);
+    protected summarizeCore(serializer: IFluidSerializer): ISummaryTreeWithStats {
+        return serializeDirectory(this.root, serializer);
     }
 
     /**
@@ -653,27 +659,6 @@ export class SharedDirectory extends SharedObject<ISharedDirectoryEvents> implem
                     );
                     currentSubDir.populateStorage(key, localValue);
                 }
-            }
-        }
-    }
-
-    /**
-     * {@inheritDoc @fluidframework/shared-object-base#SharedObject.registerCore}
-     * @internal
-     */
-    protected registerCore(): void {
-        const subdirsToRegisterFrom = new Array<SubDirectory>();
-        subdirsToRegisterFrom.push(this.root);
-
-        for (const currentSubDir of subdirsToRegisterFrom) {
-            for (const value of currentSubDir.values()) {
-                if (SharedObject.is(value)) {
-                    value.bindToContext();
-                }
-            }
-
-            for (const [, subdir] of currentSubDir.subdirectories()) {
-                subdirsToRegisterFrom.push(subdir as SubDirectory);
             }
         }
     }
@@ -834,6 +819,11 @@ export class SharedDirectory extends SharedObject<ISharedDirectoryEvents> implem
  */
 class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirectory {
     /**
+     * Tells if the sub directory is disposed or not.
+     */
+    private _disposed = false;
+
+    /**
      * String representation for the class.
      */
     public [Symbol.toStringTag]: string = "SubDirectory";
@@ -885,12 +875,28 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
         super();
     }
 
+    public dispose(error?: Error): void {
+        this._disposed = true;
+        this.emit("disposed", this);
+    }
+
+    public get disposed(): boolean {
+        return this._disposed;
+    }
+
+    private throwIfDisposed() {
+        if (this._disposed) {
+            throw new UsageError("Cannot access Disposed subDirectory");
+        }
+    }
+
     /**
      * Checks whether the given key exists in this IDirectory.
      * @param key - The key to check
      * @returns True if the key exists, false otherwise
      */
     public has(key: string): boolean {
+        this.throwIfDisposed();
         return this._storage.has(key);
     }
 
@@ -898,37 +904,15 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * {@inheritDoc IDirectory.get}
      */
     public get<T = any>(key: string): T | undefined {
+        this.throwIfDisposed();
         return this._storage.get(key)?.value as T | undefined;
-    }
-
-    /**
-     * {@inheritDoc IDirectory.wait}
-     */
-    public async wait<T = any>(key: string): Promise<T> {
-        // Return immediately if the value already exists
-        if (this._storage.has(key)) {
-            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-            return this._storage.get(key)!.value as T;
-        }
-
-        // Otherwise subscribe to changes
-        return new Promise<T>((resolve, reject) => {
-            const callback = (changed: IDirectoryValueChanged) => {
-                if (this.absolutePath === changed.path && key === changed.key) {
-                    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-                    resolve(this._storage.get(key)!.value as T);
-                    this.directory.removeListener("valueChanged", callback);
-                }
-            };
-
-            this.directory.on("valueChanged", callback);
-        });
     }
 
     /**
      * {@inheritDoc IDirectory.set}
      */
     public set<T = any>(key: string, value: T): this {
+        this.throwIfDisposed();
         // Undefined/null keys can't be serialized to JSON in the manner we currently snapshot.
         if (key === undefined || key === null) {
             throw new Error("Undefined and null keys are not supported");
@@ -964,9 +948,17 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
     }
 
     /**
+     * {@inheritDoc IDirectory.countSubDirectory}
+     */
+    public countSubDirectory(): number {
+        return this._subdirectories.size;
+    }
+
+    /**
      * {@inheritDoc IDirectory.createSubDirectory}
      */
     public createSubDirectory(subdirName: string): IDirectory {
+        this.throwIfDisposed();
         // Undefined/null subdirectory names can't be serialized to JSON in the manner we currently snapshot.
         if (subdirName === undefined || subdirName === null) {
             throw new Error("SubDirectory name may not be undefined or null");
@@ -1001,6 +993,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * {@inheritDoc IDirectory.getSubDirectory}
      */
     public getSubDirectory(subdirName: string): IDirectory | undefined {
+        this.throwIfDisposed();
         return this._subdirectories.get(subdirName);
     }
 
@@ -1008,6 +1001,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * {@inheritDoc IDirectory.hasSubDirectory}
      */
     public hasSubDirectory(subdirName: string): boolean {
+        this.throwIfDisposed();
         return this._subdirectories.has(subdirName);
     }
 
@@ -1015,6 +1009,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * {@inheritDoc IDirectory.deleteSubDirectory}
      */
     public deleteSubDirectory(subdirName: string): boolean {
+        this.throwIfDisposed();
         // Delete the sub directory locally first.
         const successfullyRemoved = this.deleteSubDirectoryCore(subdirName, true);
 
@@ -1037,6 +1032,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * {@inheritDoc IDirectory.subdirectories}
      */
     public subdirectories(): IterableIterator<[string, IDirectory]> {
+        this.throwIfDisposed();
         return this._subdirectories.entries();
     }
 
@@ -1044,6 +1040,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * {@inheritDoc IDirectory.getWorkingDirectory}
      */
     public getWorkingDirectory(relativePath: string): IDirectory | undefined {
+        this.throwIfDisposed();
         return this.directory.getWorkingDirectory(this.makeAbsolute(relativePath));
     }
 
@@ -1053,6 +1050,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * @returns True if the key existed and was deleted, false if it did not exist
      */
     public delete(key: string): boolean {
+        this.throwIfDisposed();
         // Delete the key locally first.
         const successfullyRemoved = this.deleteCore(key, true);
 
@@ -1075,6 +1073,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * Deletes all keys from within this IDirectory.
      */
     public clear(): void {
+        this.throwIfDisposed();
         // Clear the data locally first.
         this.clearCore(true);
 
@@ -1095,6 +1094,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * @param callback - Callback to issue
      */
     public forEach(callback: (value: any, key: string, map: Map<string, any>) => void): void {
+        this.throwIfDisposed();
         this._storage.forEach((localValue, key, map) => {
             callback(localValue.value, key, map);
         });
@@ -1104,6 +1104,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * The number of entries under this IDirectory.
      */
     public get size(): number {
+        this.throwIfDisposed();
         return this._storage.size;
     }
 
@@ -1112,6 +1113,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * @returns The iterator
      */
     public entries(): IterableIterator<[string, any]> {
+        this.throwIfDisposed();
         const localEntriesIterator = this._storage.entries();
         const iterator = {
             next(): IteratorResult<[string, any]> {
@@ -1135,6 +1137,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * @returns The iterator
      */
     public keys(): IterableIterator<string> {
+        this.throwIfDisposed();
         return this._storage.keys();
     }
 
@@ -1143,6 +1146,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * @returns The iterator
      */
     public values(): IterableIterator<any> {
+        this.throwIfDisposed();
         const localValuesIterator = this._storage.values();
         const iterator = {
             next(): IteratorResult<any> {
@@ -1166,6 +1170,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * @returns The iterator
      */
     public [Symbol.iterator](): IterableIterator<[string, any]> {
+        this.throwIfDisposed();
         return this.entries();
     }
 
@@ -1183,6 +1188,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
         local: boolean,
         localOpMetadata: unknown,
     ): void {
+        this.throwIfDisposed();
         if (local) {
             assert(localOpMetadata !== undefined,
                 0x00f /* `pendingMessageId is missing from the local client's ${op.type} operation` */);
@@ -1210,6 +1216,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
         local: boolean,
         localOpMetadata: unknown,
     ): void {
+        this.throwIfDisposed();
         if (!this.needProcessStorageOperation(op, local, localOpMetadata)) {
             return;
         }
@@ -1231,6 +1238,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
         local: boolean,
         localOpMetadata: unknown,
     ): void {
+        this.throwIfDisposed();
         if (!this.needProcessStorageOperation(op, local, localOpMetadata)) {
             return;
         }
@@ -1256,6 +1264,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
         local: boolean,
         localOpMetadata: unknown,
     ): void {
+        this.throwIfDisposed();
         if (!this.needProcessSubDirectoryOperations(op, local, localOpMetadata)) {
             return;
         }
@@ -1276,6 +1285,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
         local: boolean,
         localOpMetadata: unknown,
     ): void {
+        this.throwIfDisposed();
         if (!this.needProcessSubDirectoryOperations(op, local, localOpMetadata)) {
             return;
         }
@@ -1288,6 +1298,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * @internal
      */
     public submitClearMessage(op: IDirectoryClearOperation): void {
+        this.throwIfDisposed();
         const pendingMessageId = ++this.pendingMessageId;
         this.directory.submitDirectoryMessage(op, pendingMessageId);
         this.pendingClearMessageId = pendingMessageId;
@@ -1299,6 +1310,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * @internal
      */
     public submitKeyMessage(op: IDirectoryKeyOperation): void {
+        this.throwIfDisposed();
         const pendingMessageId = ++this.pendingMessageId;
         this.directory.submitDirectoryMessage(op, pendingMessageId);
         this.pendingKeys.set(op.key, pendingMessageId);
@@ -1310,6 +1322,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * @internal
      */
     public submitSubDirectoryMessage(op: IDirectorySubDirectoryOperation): void {
+        this.throwIfDisposed();
         const pendingMessageId = ++this.pendingMessageId;
         this.directory.submitDirectoryMessage(op, pendingMessageId);
         this.pendingSubDirectories.set(op.subdirName, pendingMessageId);
@@ -1322,6 +1335,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * @internal
      */
     public *getSerializedStorage(serializer: IFluidSerializer) {
+        this.throwIfDisposed();
         for (const [key, localValue] of this._storage) {
             const value = localValue.makeSerialized(serializer, this.directory.handle);
             const res: [string, ISerializedValue] = [key, value];
@@ -1336,6 +1350,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * @internal
      */
     public populateStorage(key: string, localValue: ILocalValue): void {
+        this.throwIfDisposed();
         this._storage.set(key, localValue);
     }
 
@@ -1346,6 +1361,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * @internal
      */
     public populateSubDirectory(subdirName: string, newSubDir: SubDirectory): void {
+        this.throwIfDisposed();
         this._subdirectories.set(subdirName, newSubDir);
     }
 
@@ -1357,6 +1373,7 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * @internal
      */
     public getLocalValue<T extends ILocalValue = ILocalValue>(key: string): T {
+        this.throwIfDisposed();
         return this._storage.get(key) as T;
     }
 
@@ -1530,8 +1547,25 @@ class SubDirectory extends TypedEventEmitter<IDirectoryEvents> implements IDirec
      * @param op - The message if from a remote delete, or null if from a local delete
      */
     private deleteSubDirectoryCore(subdirName: string, local: boolean) {
+        const previousValue = this.getSubDirectory(subdirName);
         // This should make the subdirectory structure unreachable so it can be GC'd and won't appear in snapshots
         // Might want to consider cleaning out the structure more exhaustively though?
-        return this._subdirectories.delete(subdirName);
+        const successfullyRemoved = this._subdirectories.delete(subdirName);
+        this.disposeSubDirectoryTree(previousValue);
+        return successfullyRemoved;
+    }
+
+    private disposeSubDirectoryTree(directory: IDirectory | undefined) {
+        if (!directory) {
+            return;
+        }
+        // Dispose the subdirectory tree. This will dispose the subdirectories from bottom to top.
+        const subDirectories = directory.subdirectories();
+        for (const [_, subDirectory] of subDirectories) {
+            this.disposeSubDirectoryTree(subDirectory);
+        }
+        if (typeof directory.dispose === "function") {
+            directory.dispose();
+        }
     }
 }

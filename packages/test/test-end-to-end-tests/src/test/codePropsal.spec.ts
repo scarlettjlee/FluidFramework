@@ -3,14 +3,16 @@
  * Licensed under the MIT License.
  */
 
+/* eslint-disable max-len */
+
 import { strict as assert } from "assert";
-import { IContainer } from "@fluidframework/container-definitions";
 import {
+    IContainer,
     IFluidCodeDetails,
     IFluidCodeDetailsComparer,
     IFluidPackage,
     isFluidPackage,
-} from "@fluidframework/core-interfaces";
+} from "@fluidframework/container-definitions";
 import {
     createAndAttachContainer,
     createDocumentId,
@@ -19,9 +21,9 @@ import {
     SupportedExportInterfaces,
     TestFluidObjectFactory,
 } from "@fluidframework/test-utils";
-import { ISharedMap, SharedMap } from "@fluidframework/map";
+import { ISharedMap, IValueChanged, SharedMap } from "@fluidframework/map";
 import { requestFluidObject } from "@fluidframework/runtime-utils";
-import { describeNoCompat } from "@fluidframework/test-version-utils";
+import { describeNoCompat, itExpects } from "@fluidframework/test-version-utils";
 
 interface ICodeProposalTestPackage extends IFluidPackage {
     version: number,
@@ -34,6 +36,27 @@ function isCodeProposalTestPackage(pkg: unknown): pkg is ICodeProposalTestPackag
         && typeof maybe?.schema === "number"
         && isFluidPackage(maybe);
 }
+
+const mapWait = async <T = any>(map: ISharedMap, key: string): Promise<T> => {
+    const maybeValue = map.get<T>(key);
+    if (maybeValue !== undefined) {
+        return maybeValue;
+    }
+
+    return new Promise((resolve) => {
+        const handler = (changed: IValueChanged) => {
+            if (changed.key === key) {
+                map.off("valueChanged", handler);
+                const value = map.get<T>(changed.key);
+                if (value === undefined) {
+                    throw new Error("Unexpected valueChanged result");
+                }
+                resolve(value);
+            }
+        };
+        map.on("valueChanged", handler);
+    });
+};
 
 // REVIEW: enable compat testing?
 describeNoCompat("CodeProposal.EndToEnd", (getTestObjectProvider) => {
@@ -125,7 +148,12 @@ describeNoCompat("CodeProposal.EndToEnd", (getTestObjectProvider) => {
         await testRoundTrip();
     });
 
-    it("Code Proposal", async () => {
+    itExpects("Code Proposal",
+    [
+        {eventName:"fluid:telemetry:Container:ContainerClose", error:"Existing context does not satisfy incoming proposal"},
+        {eventName:"fluid:telemetry:Container:ContainerClose", error:"Existing context does not satisfy incoming proposal"},
+    ],
+    async () => {
         const proposal: IFluidCodeDetails = { package: packageV2 };
         for (let i = 0; i < containers.length; i++) {
             containers[i].once("codeDetailsProposed", (c) => {
@@ -153,38 +181,6 @@ describeNoCompat("CodeProposal.EndToEnd", (getTestObjectProvider) => {
 
         for (let i = 0; i < containers.length; i++) {
             assert.strictEqual(containers[i].closed, true, `containers[${i}] should be closed`);
-        }
-    });
-
-    it("Code Proposal Rejection", async () => {
-        for (let i = 0; i < containers.length; i++) {
-            containers[i].once("contextChanged", () => {
-                throw Error(`context should not change for containers[${i}]`);
-            });
-        }
-
-        const proposal: IFluidCodeDetails = { package: packageV2 };
-        containers[1].on("codeDetailsProposed", (c, p) => {
-            assert.deepStrictEqual(
-                c,
-                proposal,
-                "codeDetails2 should have been proposed");
-            p.reject();
-        });
-
-        const res = await Promise.all([
-            containers[0].proposeCodeDetails(proposal),
-            provider.ensureSynchronized(),
-        ]);
-
-        assert.strictEqual(res[0], false, "Code proposal should be rejected");
-
-        for (let i = 0; i < containers.length; i++) {
-            assert.strictEqual(containers[i].closed, false, `containers[${i}] should not be closed`);
-            assert.deepStrictEqual(
-                containers[i].getSpecifiedCodeDetails?.(),
-                { package: packageV1 },
-                `containers[${i}] code details should not update`);
         }
     });
 
@@ -225,7 +221,7 @@ describeNoCompat("CodeProposal.EndToEnd", (getTestObjectProvider) => {
         }
         const waiters: Promise<void>[] = [];
         for (const map of maps) {
-            waiters.push(...keys.map(async (k) => map.wait(k)));
+            waiters.push(...keys.map(async (k) => mapWait(map, k)));
         }
 
         await Promise.all([provider.ensureSynchronized(), ...waiters]);

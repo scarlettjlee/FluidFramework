@@ -63,6 +63,7 @@ const DefaultDeli: IDeliState = {
     expHash1: defaultHash,
     logOffset: -1,
     sequenceNumber: 0,
+    signalClientConnectionNumber: 0,
     term: 1,
     lastSentMSN: 0,
     nackMessages: undefined,
@@ -240,14 +241,15 @@ export class LocalOrderer implements IOrderer {
             this.scriptoriumContext,
             async (lambdaSetup, context) => {
                 const deltasCollection = await lambdaSetup.deltaCollectionP();
-                return new ScriptoriumLambda(deltasCollection, context);
+                return new ScriptoriumLambda(deltasCollection, context, this.tenantId, this.documentId);
             });
 
         this.broadcasterLambda = new LocalLambdaController(
             this.deltasKafka,
             this.setup,
             this.broadcasterContext,
-            async (_, context) => new BroadcasterLambda(this.socketPublisher, context));
+            async (_, context) =>
+                new BroadcasterLambda(this.socketPublisher, context, this.serviceConfiguration, undefined));
 
         this.foremanLambda = new LocalLambdaController(
             this.deltasKafka,
@@ -287,6 +289,7 @@ export class LocalOrderer implements IOrderer {
                     lastCheckpoint,
                     checkpointManager,
                     this.deltasKafka,
+                    undefined,
                     this.rawDeltasKafka,
                     this.serviceConfiguration,
                     undefined,
@@ -331,7 +334,7 @@ export class LocalOrderer implements IOrderer {
             lastState.proposals,
             lastState.values,
             () => -1,
-            () => { return; });
+        );
 
         const summaryWriter = new SummaryWriter(
             this.tenantId,
@@ -339,7 +342,7 @@ export class LocalOrderer implements IOrderer {
             this.gitManager,
             scribeMessagesCollection,
             false);
-        const summaryReader = new SummaryReader(this.documentId, this.gitManager, false);
+        const summaryReader = new SummaryReader(this.tenantId, this.documentId, this.gitManager, false);
         const checkpointManager = new CheckpointManager(
             context,
             this.tenantId,

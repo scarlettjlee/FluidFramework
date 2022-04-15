@@ -49,6 +49,7 @@ const odspOpsCaching: OptionsMatrix<IOpsCachingPolicy> = {
 
 const odspSessionOptions: OptionsMatrix<ICollabSessionOptions> = {
     unauthenticatedUserDisplayName: [undefined],
+    forceAccessTokenViaAuthorizationHeader: [undefined],
 };
 
 export const generateOdspHostStoragePolicy = (seed: number) => {
@@ -61,7 +62,7 @@ export const generateOdspHostStoragePolicy = (seed: number) => {
         sessionOptions: [undefined, ...generatePairwiseOptions(odspSessionOptions, seed)],
         enableRedeemFallback: booleanCases,
         cacheCreateNewSummary: booleanCases,
-        fetchBinarySnapshotFormat: [false],
+        fetchBinarySnapshotFormat: [undefined],
         isolateSocketCache: [true],
         enableShareLinkWithCreate: [false],
     };

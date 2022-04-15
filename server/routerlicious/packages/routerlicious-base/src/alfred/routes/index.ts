@@ -10,6 +10,8 @@ import {
     MongoManager,
     IThrottler,
     ICache,
+    ICollection,
+    IDocument,
 } from "@fluidframework/server-services-core";
 import { Router } from "express";
 import { Provider } from "nconf";
@@ -21,7 +23,6 @@ export interface IRoutes {
     api: Router;
 }
 
-// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
 export function create(
     config: Provider,
     tenantManager: ITenantManager,
@@ -31,7 +32,7 @@ export function create(
     storage: IDocumentStorage,
     producer: IProducer,
     appTenants: IAlfredTenant[],
-    globalDbMongoManager?: MongoManager) {
+    documentsCollection: ICollection<IDocument>) {
     return {
         api: api.create(
             config,
@@ -42,7 +43,7 @@ export function create(
             operationsDbMongoManager,
             producer,
             appTenants,
-            globalDbMongoManager,
+            documentsCollection,
         ),
     };
 }

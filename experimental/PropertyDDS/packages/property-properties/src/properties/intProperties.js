@@ -2,21 +2,21 @@
  * Copyright (c) Microsoft Corporation and contributors. All rights reserved.
  * Licensed under the MIT License.
  */
-/* eslint-disable new-cap*/
+/* eslint-disable new-cap */
 /**
  * @fileoverview Definition of the Int*Property classes
  */
 
 const _ = require('lodash');
-const { ValueProperty } = require('./valueProperty');
-const { _castFunctors } = require('./primitiveTypeCasts');
 const { ChangeSet } = require('@fluid-experimental/property-changeset');
 const {
     ConsoleUtils,
     constants: { MSG },
     Uint64,
-    Int64
+    Int64,
 } = require('@fluid-experimental/property-common');
+const { ValueProperty } = require('./valueProperty');
+const { _castFunctors } = require('./primitiveTypeCasts');
 
 const BIT32 = 4294967296;
 
@@ -31,13 +31,13 @@ export class Int8Property extends ValueProperty {
      * @category Value Properties
      */
     constructor(in_params) {
-        super({ ...in_params, typeid: 'Int8' });
+        super(in_params);
         // default for this property type is '0'
         this._data = 0;
-    };
-    _castFunctor = _castFunctors.Int8;
+    }
 }
-
+Int8Property.prototype._typeid = 'Int8';
+Int8Property.prototype._castFunctor = _castFunctors.Int8;
 
 /**
  * A primitive property for an signed 16 bit integer value.
@@ -52,14 +52,13 @@ export class Int16Property extends ValueProperty {
      * @category Value Properties
      */
     constructor(in_params) {
-        super({ ...in_params, typeid: 'Int16' });
+        super(in_params);
         // default for this property type is '0'
         this._data = 0;
-
-    };
-    _castFunctor = _castFunctors.Int16;
-
+    }
 }
+Int16Property.prototype._typeid = 'Int16';
+Int16Property.prototype._castFunctor = _castFunctors.Int16;
 
 /**
  * A primitive property for an signed 32 bit integer value.
@@ -74,13 +73,14 @@ export class Int32Property extends ValueProperty {
      * @category Value Properties
      */
     constructor(in_params) {
-        super({ typeid: 'Int32', ...in_params });
+        super(in_params);
         // default for this property type is '0'
         this._data = 0;
-
-    };
-    _castFunctor = _castFunctors.Int32;
+    }
 }
+Int32Property.prototype._typeid = 'Int32';
+Int32Property.prototype._castFunctor = _castFunctors.Int32;
+
 /**
  * A primitive property base class for big integer values.
  */
@@ -97,11 +97,10 @@ export class Integer64Property extends ValueProperty {
      */
     constructor(in_params, dataConstructor) {
         super(in_params);
-        this.DataConstructor = dataConstructor
+        this.DataConstructor = dataConstructor;
         // default for this property type is '0, 0'
         this._data = new this.DataConstructor();
-    };
-
+    }
 
     /**
      * Internal function to update the value of the Integer64Property
@@ -129,21 +128,21 @@ export class Integer64Property extends ValueProperty {
             this._setDirty(in_reportToView);
         }
         return changed;
-    };
+    }
 
     /**
      * @return {number} the higher 32 bit integer part
      */
     getValueHigh() {
         return this._data.getValueHigh();
-    };
+    }
 
     /**
      * @return {number} the lower 32 bit integer part
      */
     getValueLow() {
         return this._data.getValueLow();
-    };
+    }
 
     /**
      * @param {number} in_high set the higher 32 bit integer part
@@ -160,7 +159,7 @@ export class Integer64Property extends ValueProperty {
             this._setDirty();
         }
         return changed;
-    };
+    }
 
     /**
      * @param {number} in_low set the lower 32 bit integer part
@@ -177,7 +176,7 @@ export class Integer64Property extends ValueProperty {
             this._setDirty();
         }
         return changed;
-    };
+    }
 
     /**
      * @inheritdoc
@@ -192,7 +191,7 @@ export class Integer64Property extends ValueProperty {
             var changed = this._setValue(readValue, in_reportToView);
             return changed ? this.serialize() : undefined;
         }
-    };
+    }
 
     /**
      * @inheritdoc
@@ -206,7 +205,7 @@ export class Integer64Property extends ValueProperty {
             var newVal = new this.DataConstructor(in_changeSet[0], in_changeSet[1]);
             this._setValue(newVal, in_reportToView);
         }
-    };
+    }
 
     /**
      * Serialize the property
@@ -235,9 +234,7 @@ export class Integer64Property extends ValueProperty {
         } else {
             return [this._data.getValueLow(), this._data.getValueHigh()];
         }
-    };
-
-
+    }
 
     /**
      * The toString() method returns a string representing the specified Integer64 object.
@@ -248,7 +245,7 @@ export class Integer64Property extends ValueProperty {
      */
     toString(in_radix) {
         return this._data.toString(in_radix);
-    };
+    }
 
     /**
      * The Integer64.fromString() method parses a string argument updates object's lower and higher 32 bit integer parts.
@@ -267,8 +264,7 @@ export class Integer64Property extends ValueProperty {
 
         this.setValueHigh(int.getValueHigh());
         this.setValueLow(int.getValueLow());
-    };
-
+    }
 }
 
 /**
@@ -284,11 +280,11 @@ export class Int64Property extends Integer64Property {
      * @category Value Properties
      */
     constructor(in_params) {
-        super({ ...in_params, typeid: 'Int64' }, Int64);
-    };
-
-    _castFunctor = _castFunctors.Int64;
+        super(in_params, Int64);
+    }
 }
+Int64Property.prototype._typeid = 'Int64';
+Int64Property.prototype._castFunctor = _castFunctors.Int64;
 
 /**
  * A primitive property class for big unsingned integer values.
@@ -303,8 +299,8 @@ export class Uint64Property extends Integer64Property {
      * @category Value Properties
      */
     constructor(in_params) {
-        super({ ...in_params, typeid: 'Uint64' }, Uint64);
-    };
-
-    _castFunctor = _castFunctors.Uint64;
-};
+        super(in_params, Uint64);
+    }
+}
+Uint64Property.prototype._typeid = 'Uint64';
+Uint64Property.prototype._castFunctor = _castFunctors.Uint64;

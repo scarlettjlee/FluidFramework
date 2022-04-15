@@ -145,7 +145,7 @@ export class SharedIntervalCollection<TInterval extends ISerializableInterval = 
         return sharedCollection;
     }
 
-    protected summarizeCore(serializer: IFluidSerializer, fullTree: boolean): ISummaryTreeWithStats {
+    protected summarizeCore(serializer: IFluidSerializer): ISummaryTreeWithStats {
         return createSingleBlobSummary(snapshotFileName, this.intervalMapKernel.serialize(serializer));
     }
 
@@ -170,17 +170,9 @@ export class SharedIntervalCollection<TInterval extends ISerializableInterval = 
         }
     }
 
-    protected registerCore() {
-        for (const value of this.intervalMapKernel.values()) {
-            if (SharedObject.is(value)) {
-                value.bindToContext();
-            }
-        }
-    }
-
     /**
      * Creates the full path of the intervalCollection label
-     * @param label - the incoming lable
+     * @param label - the incoming label
      */
     protected getIntervalCollectionPath(label: string): string {
         return label;

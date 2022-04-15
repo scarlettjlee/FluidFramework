@@ -18,16 +18,19 @@ const {
     EventEmitter,
     SortedCollection,
     constants,
-    GuidUtils
+    GuidUtils,
 } = require('@fluid-experimental/property-common');
 const { MSG } = constants;
 
 const {
     TypeIdHelper,
     TemplateValidator,
-    PathHelper
+    PathHelper,
+    ChangeSet,
 } = require('@fluid-experimental/property-changeset');
 
+const semver = require('semver');
+const async = require('async');
 const { PropertyTemplate } = require('./propertyTemplate');
 const { PropertyTemplateWrapper } = require('./propertyTemplateWrapper');
 
@@ -48,7 +51,7 @@ const {
 
 const {
     Float32Property,
-    Float64Property
+    Float64Property,
 } = require('./properties/floatProperties');
 
 const {
@@ -56,7 +59,7 @@ const {
     Int16Property,
     Int32Property,
     Int64Property,
-    Uint64Property
+    Uint64Property,
 } = require('./properties/intProperties');
 
 const { StringProperty } = require('./properties/stringProperty');
@@ -103,13 +106,10 @@ const {
     Int16MapProperty,
     Int8MapProperty,
     StringMapProperty,
-    BoolMapProperty
+    BoolMapProperty,
 } = require('./properties/valueMapProperty');
 
-const semver = require('semver');
-const async = require('async');
 const { LazyLoadedProperties } = require('./properties/lazyLoadedProperties');
-
 
 /**
  * Creates an instance of the TemplateValidator
@@ -122,13 +122,13 @@ const { LazyLoadedProperties } = require('./properties/lazyLoadedProperties');
  *
  * @ignore
  */
-var _createTemplateValidator = function (skipSemver) {
-    var hasSchema = function (typeid) {
+var _createTemplateValidator = function(skipSemver) {
+    var hasSchema = function(typeid) {
         return this._localVersionedTemplates.has(typeid);
     };
     var params = {
         inheritsFrom: this.inheritsFrom.bind(this),
-        hasSchema: hasSchema.bind(this)
+        hasSchema: hasSchema.bind(this),
     };
 
     if (skipSemver) {
@@ -149,7 +149,7 @@ var _createTemplateValidator = function (skipSemver) {
  * @throws if no in_template is passed.
  * @param {property-properties.PropertyTemplate|object} in_template - the template to register.
  */
-var registerLocal = function (in_template) {
+var registerLocal = function(in_template) {
     var typeid = in_template.typeid;
     var remoteTemplates = this._getRemoteTemplates(typeid);
 
@@ -178,17 +178,17 @@ var registerLocal = function (in_template) {
 
                 localValidationResults = templateValidator.validate(
                     localRegisteredTemplate.serializeCanonical(),
-                    serializedInTemplate
+                    serializedInTemplate,
                 );
             }
 
             if (localValidationResults.isValid) {
                 var remoteValidationResults = { isValid: true };
                 if (remoteTemplates.length) {
-                    _.every(remoteTemplates, function (template) {
+                    _.every(remoteTemplates, function(template) {
                         remoteValidationResults = templateValidator.validate(
                             template.serializeCanonical(),
-                            serializedInTemplate
+                            serializedInTemplate,
                         );
 
                         return remoteValidationResults.isValid;
@@ -199,12 +199,12 @@ var registerLocal = function (in_template) {
             if (!localValidationResults.isValid) {
                 throw new Error(
                     MSG.TEMPLATE_MISMATCH + typeid +
-                    '\n  errors = ' + JSON.stringify(_extractErrorMessage(localValidationResults.errors), 0, 2)
+                    '\n  errors = ' + JSON.stringify(_extractErrorMessage(localValidationResults.errors), 0, 2),
                 );
             } else if (!remoteValidationResults.isValid) {
                 throw new Error(
                     MSG.REMOTE_TEMPLATE_MISMATCH + typeid +
-                    '\n  errors = ' + JSON.stringify(_extractErrorMessage(remoteValidationResults.errors), 0, 2)
+                    '\n  errors = ' + JSON.stringify(_extractErrorMessage(remoteValidationResults.errors), 0, 2),
                 );
             } else if (this._localPrimitivePropertiesAndTemplates.has(typeid)) {
                 // Template is already registered. Do nothing.
@@ -231,7 +231,7 @@ var registerLocal = function (in_template) {
             } else {
                 throw new Error(
                     MSG.FAILED_TO_REGISTER + typeid +
-                    '\n  errors = ' + JSON.stringify(_extractErrorMessage(validationResult.errors), 0, 2)
+                    '\n  errors = ' + JSON.stringify(_extractErrorMessage(validationResult.errors), 0, 2),
                 );
             }
         } else {
@@ -241,7 +241,7 @@ var registerLocal = function (in_template) {
         this._registerTypeId(typeid, in_template);
     } else {
         throw new Error(
-            MSG.CANNOT_REGISTER_PRIMITIVE + typeid
+            MSG.CANNOT_REGISTER_PRIMITIVE + typeid,
         );
     }
 };
@@ -252,8 +252,8 @@ var registerLocal = function (in_template) {
  * @private
  * @return {Array.<string>} List of error messages
  */
-var _extractErrorMessage = function (in_errors) {
-    return _.map(in_errors, function (error) {
+var _extractErrorMessage = function(in_errors) {
+    return _.map(in_errors, function(error) {
         return error.message;
     });
 };
@@ -263,9 +263,9 @@ var _extractErrorMessage = function (in_errors) {
  * @return {property-common.Datastructures.SortedCollection} Empty sorted collection
  * @private
  */
-var _createVersionedSortedCollection = function () {
+var _createVersionedSortedCollection = function() {
     var collection = new SortedCollection();
-    collection.setComparisonFunction(function (versionA, versionB) {
+    collection.setComparisonFunction(function(versionA, versionB) {
         if (semver.gt(versionA, versionB)) {
             return 1;
         } else if (semver.lt(versionA, versionB)) {
@@ -285,11 +285,11 @@ var _createVersionedSortedCollection = function () {
  *
  * @return {Array} list of unknown typeids
  */
-var _extractUnknownDependencies = function (in_template) {
+var _extractUnknownDependencies = function(in_template) {
     var self = this;
     var dependencies = PropertyTemplate.extractDependencies(in_template);
 
-    dependencies = dependencies.filter(function (typeid) {
+    dependencies = dependencies.filter(function(typeid) {
         return !self._localPrimitivePropertiesAndTemplates.has(typeid);
     });
 
@@ -303,7 +303,7 @@ var _extractUnknownDependencies = function (in_template) {
  * @param {String} in_typeid typeid of the template to retrieve
  *
  */
-var _pushTemplateRequestTask = function (in_typeid) {
+var _pushTemplateRequestTask = function(in_typeid) {
     var that = this;
 
     if (that.missingDependencies[in_typeid].requested === true) {
@@ -311,7 +311,7 @@ var _pushTemplateRequestTask = function (in_typeid) {
     }
     that.missingDependencies[in_typeid].requested = true;
 
-    this.templateRequestsQueue.push({ typeid: in_typeid, context: that._templateStore }, function (response) {
+    this.templateRequestsQueue.push({ typeid: in_typeid, context: that._templateStore }, function(response) {
         if (response.error) {
             that.templateRequestsResults.errors[in_typeid] = response.error;
         } else {
@@ -387,7 +387,7 @@ class PropertyFactory {
         // Structure containing results the process of retrieving property set schemas from store
         this.templateRequestsResults = {
             errors: {},
-            schemas: {}
+            schemas: {},
         };
 
         // Cache of inheritsFrom() request results
@@ -396,8 +396,19 @@ class PropertyFactory {
         /** Cache of constructor function that are auto-generated for typeids */
         this._typedPropertyConstructorCache = {};
 
+        /** A cache of functions that create the properties */
+        this._cachedCreationFunctions = new Map();
+
+        /** Usually we will  use the precompiled creation functions, but those all share the same constant properties.
+         *  Since it is allowed to overwrite constants via default values, we have to explicitly instantiate new
+         *  property instances for constants. Since the constants themselves may contain nested property instances,
+         *  we use this flag to indicate that for all nested properties, we do not want to use the precompiled
+         *  instantiation functions.
+         */
+        this._forceInstantion = false;
+
         this._init();
-    };
+    }
 
     /**
     * Add a listener for a given type of event.
@@ -410,7 +421,7 @@ class PropertyFactory {
     */
     addListener(eventName, eventListener) {
         this._eventEmitter.addListener(eventName, eventListener);
-    };
+    }
 
     /**
     * Remove a listener for a given type of event. Iff a listener was removed,
@@ -420,10 +431,10 @@ class PropertyFactory {
     *   listener was attached.
     * @param  {function} eventListener The function to remove from the list of functions
     * @public
-    **/
+    * */
     removeListener(eventName, eventListener) {
         this._eventEmitter.removeListener(eventName, eventListener);
-    };
+    }
 
     /**
      * Initialize the PropertyFactory by registering primitive types
@@ -485,27 +496,27 @@ class PropertyFactory {
         var NamedPropertyTemplate = {
             typeid: 'NamedProperty',
             properties: [
-                { id: 'guid', typeid: 'String' }
-            ]
+                { id: 'guid', typeid: 'String' },
+            ],
         };
 
         var NamedNodePropertyTemplate = {
             typeid: 'NamedNodeProperty',
-            inherits: ['NodeProperty', 'NamedProperty']
+            inherits: ['NodeProperty', 'NamedProperty'],
         };
 
         var RelationshipPropertyTemplate = {
             typeid: 'RelationshipProperty',
             inherits: ['NodeProperty', 'NamedProperty'],
             properties: [
-                { id: 'to', typeid: 'Reference' }
-            ]
+                { id: 'to', typeid: 'Reference' },
+            ],
         };
 
         this._registerTypeId(NamedPropertyTemplate.typeid, NamedPropertyTemplate);
         this._registerTypeId(NamedNodePropertyTemplate.typeid, NamedNodePropertyTemplate);
         this._registerTypeId(RelationshipPropertyTemplate.typeid, RelationshipPropertyTemplate);
-    };
+    }
 
     /**
      * Register a template which are used to instantiate properties. To find out more about templates,
@@ -520,7 +531,6 @@ class PropertyFactory {
      * @param {property-properties.PropertyTemplate|object|String|Array} in_input - a template, a typeid or an array of either
      */
     register(in_input) {
-
         if (this.missingDependencies === undefined) {
             this.missingDependencies = {};
         }
@@ -539,8 +549,8 @@ class PropertyFactory {
         // 3. in_input is an array of strings (typeids) or jsons
         // apply step 1. or 2. for all elements of array
 
-        var validateArray = function (array) {
-            var isInvalid = _.some(array, function (value) {
+        var validateArray = function(array) {
+            var isInvalid = _.some(array, function(value) {
                 return !PropertyTemplate.isTemplate(value) && !TypeIdHelper.isTemplateTypeid(value);
             });
 
@@ -576,7 +586,7 @@ class PropertyFactory {
                 delete this.missingDependencies[elem];
             }
         }
-    };
+    }
 
     /**
      * Recursively parses the object of the specified type and returns the created
@@ -596,7 +606,7 @@ class PropertyFactory {
             default:
                 throw new Error(MSG.UNKNOWN_TYPE + in_fromType);
         }
-    };
+    }
 
     /**
      * Recursively parses the object of the specified type and registers the created
@@ -615,7 +625,7 @@ class PropertyFactory {
         for (var i = 0; i < psetsTemplates.length; i++) {
             this.register(psetsTemplates[i]);
         }
-    };
+    }
 
     /**
      * Validate semver.
@@ -660,7 +670,7 @@ class PropertyFactory {
 
         if (in_compareRemote) {
             var that = this;
-            this._remoteScopedAndVersionedTemplates.iterate(function (scope, remoteVersionedTemplates) {
+            this._remoteScopedAndVersionedTemplates.iterate(function(scope, remoteVersionedTemplates) {
                 if (remoteVersionedTemplates.has(typeidWithoutVersion)) {
                     var previousRemoteVersion = remoteVersionedTemplates.item(typeidWithoutVersion)
                         .getNearestPreviousItem(version);
@@ -668,7 +678,7 @@ class PropertyFactory {
                     if (previousRemoteVersion) {
                         validationResults = that._templateValidator.validate(
                             in_template.serializeCanonical(),
-                            previousRemoteVersion.getPropertyTemplate().serializeCanonical()
+                            previousRemoteVersion.getPropertyTemplate().serializeCanonical(),
                         );
                         warnings.push.apply(warnings, validationResults.warnings);
                     } else {
@@ -676,7 +686,7 @@ class PropertyFactory {
                         if (nextRemoteVersion) {
                             validationResults = that._templateValidator.validate(
                                 nextRemoteVersion.getPropertyTemplate().serializeCanonical(),
-                                in_template.serializeCanonical()
+                                in_template.serializeCanonical(),
                             );
                             warnings.push.apply(warnings, validationResults.warnings);
                         }
@@ -688,10 +698,10 @@ class PropertyFactory {
         if (!_.isEmpty(warnings)) {
             console.warn(
                 'Template with typeid = ' + typeid +
-                ' is valid but with the following warnings = ' + JSON.stringify(warnings, 0, 2)
+                ' is valid but with the following warnings = ' + JSON.stringify(warnings, 0, 2),
             );
         }
-    };
+    }
 
     /**
      * Internal method used to register remote templates coming over the wire.
@@ -719,12 +729,12 @@ class PropertyFactory {
             var templateValidator = _createTemplateValidator.call(this);
             var validationResults = templateValidator.validate(
                 registeredTemplate.serializeCanonical(),
-                in_remoteTemplate.serializeCanonical()
+                in_remoteTemplate.serializeCanonical(),
             );
             if (!validationResults.isValid) {
                 throw new Error(
                     MSG.TEMPLATE_MISMATCH + typeid +
-                    '\n  errors = ' + JSON.stringify(_extractErrorMessage(validationResults.errors), 0, 2)
+                    '\n  errors = ' + JSON.stringify(_extractErrorMessage(validationResults.errors), 0, 2),
                 );
             }
         } else if (in_remoteTemplate._isVersioned()) {
@@ -753,7 +763,7 @@ class PropertyFactory {
         } else {
             throw new Error(MSG.UNVERSIONED_REMOTE_TEMPLATE + ' \n' + JSON.stringify(in_remoteTemplate, 0, 2));
         }
-    };
+    }
 
     /**
      * Remove the scope from the remote templates collection
@@ -765,15 +775,15 @@ class PropertyFactory {
 
         if (this._remoteScopedAndVersionedTemplates.has(in_scope)) {
             // remove the schemas in this scope from the inheritance cache.
-            this._remoteScopedAndVersionedTemplates.item(in_scope).iterate(function (nt, schemas) {
-                schemas.iterate(function (k, schema) {
+            this._remoteScopedAndVersionedTemplates.item(in_scope).iterate(function(nt, schemas) {
+                schemas.iterate(function(k, schema) {
                     delete that._inheritanceCache[schema.getPropertyTemplate().typeid];
                 });
             });
 
             this._remoteScopedAndVersionedTemplates.remove(in_scope);
         }
-    };
+    }
 
     /**
      * Triggered when a template is registered.
@@ -781,7 +791,7 @@ class PropertyFactory {
      * @param {property-properties.Template} Template - The template being registered.
      * @memberof property-properties.PropertyFactory
      *
-     **/
+     * */
 
     /**
      * Register a template or a primitive property
@@ -822,7 +832,7 @@ class PropertyFactory {
         }
 
         this._eventEmitter.emit('registered', in_templateOrProperty);
-    };
+    }
 
     /**
      * Validate a template
@@ -845,7 +855,7 @@ class PropertyFactory {
      */
     validate(in_template) {
         return this._templateValidator.validate(in_template);
-    };
+    }
 
     /**
      * Get a template or property object based on a typeid and a context
@@ -863,7 +873,7 @@ class PropertyFactory {
             return templateOrProperty.getPropertyTemplate();
         }
         return templateOrProperty;
-    };
+    }
 
     /**
      * Get a template or property object based on a typeid and a context
@@ -898,7 +908,7 @@ class PropertyFactory {
         }
 
         return undefined;
-    };
+    }
 
     /**
      * Get template based on typeid
@@ -909,8 +919,10 @@ class PropertyFactory {
     getTemplate(in_typeid) {
         if (this._localPrimitivePropertiesAndTemplates.has(in_typeid) && !TypeIdHelper.isPrimitiveType(in_typeid)) {
             return this._localPrimitivePropertiesAndTemplates.item(in_typeid).getPropertyTemplate();
-        } else return undefined;
-    };
+        } else {
+            return undefined;
+        }
+    }
 
     /**
      * Get remote templates based on typeid
@@ -925,16 +937,15 @@ class PropertyFactory {
         var typeidWithoutVersion = parsedTypeId.typeidWithoutVersion;
         var version = parsedTypeId.version;
 
-        this._remoteScopedAndVersionedTemplates.iterate(function (scope, remoteVersionedTemplates) {
+        this._remoteScopedAndVersionedTemplates.iterate(function(scope, remoteVersionedTemplates) {
             if (remoteVersionedTemplates.has(typeidWithoutVersion) &&
                 remoteVersionedTemplates.item(typeidWithoutVersion).item(version)) {
-
                 templatesFound.push(remoteVersionedTemplates.item(typeidWithoutVersion).item(version).getPropertyTemplate());
             }
         });
 
         return templatesFound;
-    };
+    }
 
     /**
      * Create an instance of the given property typeid if there is a template registered for it.
@@ -945,15 +956,11 @@ class PropertyFactory {
      *                               Accepted values are "single" (default), "array", "map" and "set".
      * @param {object|undefined} in_initialProperties A set of initial values for the PropertySet being created
      * @param {string|undefined} in_scope - The scope in which the property typeid is defined
-     * @param {boolean|undefined} in_optimizeConstants - set true if constant optimization should occur
-     * @throws if the property does not have a unique id.
-     * @throws if the property has a typeid that is not registered.
      * @return {property-properties.BaseProperty|undefined} the property instance
      * @private
      */
     _createProperty(
-        in_typeid, in_context, in_initialProperties, in_scope, in_optimizeConstants) {
-
+        in_typeid, in_context, in_initialProperties, in_scope) {
         const ifNotSingleOrUndefined = (in_context || 'single') !== 'single';
         ConsoleUtils.assert(ifNotSingleOrUndefined || _.isString(in_typeid), MSG.UNKNOWN_TYPEID_SPECIFIED + in_typeid);
         let context = in_context;
@@ -966,35 +973,395 @@ class PropertyFactory {
             }
         }
 
-        let property;
-        if (in_optimizeConstants) {
-            var templateOrProperty = this._getWrapper(in_typeid, undefined, in_scope);
-            var isProperty = templateOrProperty instanceof PropertyTemplateWrapper;
-            var evaluateConstants = isProperty ? !templateOrProperty.hasConstantTree() : false;
+        let propertyCreationFunction = undefined;
 
-            property = this._createFromPropertyDeclaration({
-                typeid: in_typeid,
-                context: context || 'single'
-            }, undefined, in_scope, evaluateConstants);
-
-            if (isProperty) {
-                templateOrProperty.loadConstants(property);
-            }
-        } else {
-            property = this._createFromPropertyDeclaration({
-                typeid: in_typeid,
-                context: context || 'single'
-            }, undefined, in_scope, true);
+        if (!this._forceInstantion) {
+            // Check, whether we already have a property creation function for this property
+            // in the cache
+            const scopeFunctionEntry = this._cachedCreationFunctions.get(in_typeid);
+            const contextFunctionEntry = scopeFunctionEntry && scopeFunctionEntry.get(in_scope);
+            propertyCreationFunction = contextFunctionEntry && contextFunctionEntry.get(context);
         }
 
-        if (in_initialProperties !== undefined) {
-            this._setInitialValue(property, {
-                value: in_initialProperties
+        // If we don't have a cached function or are requested to explicitly instantiate the property
+        // we have to first create a property definition by recursively traversing all templates
+        let propertyDef;
+        if (!propertyCreationFunction) {
+            propertyDef = {};
+            this._createDefFromPropertyDeclaration({
+                typeid: in_typeid,
+                context: context || 'single',
+            }, in_scope, propertyDef);
+        }
+
+        let property;
+        if (!this._forceInstantion) {
+            // If we don't yet have a creation function, we will create one here
+            propertyCreationFunction = propertyCreationFunction ||
+                                       this._definePropertyCreationFunction(propertyDef, in_typeid, in_scope, context);
+
+            // Create the property by invoking the precompiled creation function
+            property = propertyCreationFunction();
+
+            // If initial properties have been provided, we will assign them to the
+            // default initialized property
+            if (in_initialProperties !== undefined) {
+                this._setInitialValue(property, {
+                    value: in_initialProperties,
+                }, false);
+            }
+        } else {
+            // Directly instantiate the property from the definition (without using) a precompield function
+            property = this._instantiatePropertyDef(propertyDef, in_scope, in_initialProperties && {
+                value: in_initialProperties,
             });
         }
 
         return property;
-    };
+    }
+
+    /**
+     * Creates an instance of the property described in the property definition.
+     *
+     * Note: this function won't create any constant children, it is only used to
+     *       instantiate nested constant properties and those will be set to constant
+     *       after their instantiation.
+     *
+     * @param {Object} propertyDef - The property defintion for the property to create
+     * @param {String} in_scope - The scope for the property to create
+     * @param {String} in_initialProperties - The initial values for the property
+     *
+     * @returns {BaseProperty} An instance of the property
+     */
+    _instantiatePropertyDef(propertyDef, in_scope, in_initialProperties) {
+        let rootProperty = undefined;
+
+        // This stack is used to recursively iterate over the property definition
+        const creationStack = [{
+            id: undefined,
+            entry: propertyDef,
+            parent:undefined,
+        }];
+
+        while (creationStack.length > 0) {
+            const currentEntry = creationStack.pop();
+
+            // We have an entry on the stack that is just waiting for its children to finish, but has already
+            // been created
+            if (currentEntry.signalChildrenFinished) {
+                currentEntry.property._signalAllStaticMembersHaveBeenAdded(in_scope);
+
+                if (currentEntry.initialValue) {
+                    this._setInitialValue(currentEntry.property, currentEntry.initialValue, true);
+                }
+                continue;
+            }
+
+            // Create the property instance
+            let property = new (currentEntry.entry.constructorFunction)(currentEntry.entry.entry);
+
+            // Insert / append the property to the parent
+            if (currentEntry.parent) {
+                if (currentEntry.entry.optional) {
+                    currentEntry.parent._insert(property.getId(), property, true);
+                } else {
+                    currentEntry.parent._append(property, currentEntry.entry.allowChildMerges);
+                }
+            } else {
+                // If we are at the root, we store the property object to return it later
+                rootProperty = property;
+            }
+
+            // For named properties we have to assign a GUID (note: all constant properties in
+            // a template will share this GUID)
+            if (currentEntry.setGuid) {
+                property.value = GuidUtils.generateGUID();
+            }
+
+            // Assign optional children
+            if (currentEntry.entry.optionalChildren) {
+                for (let [id, typeid] of Object.entries(currentEntry.entry.optionalChildren)) {
+                    property._addOptionalChild(id, typeid);
+                }
+            }
+
+            // Recursively process all children of this entry
+            if (currentEntry.entry.children) {
+                // Create an entry on the stack, which is later needed,
+                // to signal that all child properties have been added
+                const parentStackEntry = {
+                    signalChildrenFinished: true,
+                    initialValue: currentEntry.entry.initialValue,
+                    property,
+                };
+                creationStack.push(parentStackEntry);
+
+                for (let [id, child] of currentEntry.entry.children) {
+                    creationStack.push({
+                        parent: property,
+                        id: id,
+                        entry: child,
+                        setGuid: currentEntry.entry.assignGuid && id ===
+                        'guid',
+                    });
+                }
+            } else {
+                // If there are no children, we directly assign the initial value and
+                // signal that the property has completely been initialized
+                if (currentEntry.entry.initialValue) {
+                    this._setInitialValue(property, currentEntry.entry.initialValue, true);
+                }
+
+                if (currentEntry.entry.signal) {
+                    property._signalAllStaticMembersHaveBeenAdded(in_scope);
+                }
+            }
+        }
+
+        if (in_initialProperties !== undefined) {
+            this._setInitialValue(rootProperty, in_initialProperties, true);
+        }
+
+        return rootProperty;
+    }
+
+    /**
+     * Creates a javascript function that instantiates the requested property
+     *
+     * @param {Object} propertyDef - The property defintion for the property for which the function is created
+     * @param {String} in_typeid - The typeid for the property for which the function is created
+     * @param {String} in_scope - The scope for the property for which the function is created
+     * @param {String} in_context - The context for the property for which the function is created
+     *
+     * @returns {Function} A function that creates an instance of the property
+     */
+    _definePropertyCreationFunction(propertyDef, in_typeid, in_scope, in_context) {
+        // This stack is used to recursively iterate over the property definition
+        const creationStack = [{
+            id: null,
+            def: propertyDef,
+            parent:undefined,
+        }];
+
+        let creationFunctionSource = "";
+        let currentParameterIndex = 0;
+        let parameters = [];
+        let currentPropertyNumber = 0;
+        let currentPropertyVarName = "";
+        let resultVarName;
+
+        while (creationStack.length > 0) {
+            const currentEntry = creationStack.pop();
+
+            // We have an entry on the stack that is just waiting for its children to finish, but has already
+            // been created
+            if (currentEntry.signalChildrenFinished) {
+                // Add the signalling function
+                creationFunctionSource +=
+                    `${currentEntry.propertyVarname}._signalAllStaticMembersHaveBeenAdded(${JSON.stringify(in_scope)});\n`;
+                continue;
+            }
+
+            // Determine the initial value for this property
+            let initialValue = currentEntry.def.initialValue !== undefined ?
+                    currentEntry.def.initialValue :
+                    undefined;
+
+            if (currentEntry.def.entry.id) {
+                let parentEntry = currentEntry.parentStackEntry;
+                let path = [currentEntry.def.entry.id];
+
+                // We have to walk the whole parent chain and extract for
+                // each parent the initial values. Entries further up in the
+                // chain can overwrite entries further down
+                while (parentEntry) {
+                    if (parentEntry.initialValue) {
+                        // Extract changes to be applied to this property
+                        let filteredChangeSet = parentEntry.initialValue.value;
+                        for (let i = 0; i < path.length; i++) {
+                            filteredChangeSet = filteredChangeSet && filteredChangeSet[path[i]];
+                        }
+
+                        // Update the initial value with the extract changeset
+                        if (_.isObject(filteredChangeSet)) {
+                            if (initialValue === undefined) {
+                                initialValue = {
+                                    typed: false,
+                                    value: filteredChangeSet,
+                                };
+                            } else if (_.isObject(initialValue)) {
+                                Object.assign(initialValue.value, filteredChangeSet);
+                            } else {
+                                throw new Error('Invalid default values specified');
+                            }
+                        } else if (filteredChangeSet !== undefined) {
+                            if (initialValue === undefined) {
+                                initialValue = {
+                                    value: undefined,
+                                    typed: false,
+                                };
+                            }
+                            initialValue.value = filteredChangeSet;
+                        }
+                    }
+                    if (parentEntry.id !== null) {
+                        path.unshift(parentEntry.id);
+                    }
+                    parentEntry = parentEntry.parentStackEntry;
+                }
+            }
+
+            if (currentEntry.def.constant) {
+                // If we have a constant property, we create a concrete property object instance and share it
+                // among all instances of the parent property
+                let instantiatedChild;
+                try {
+                    // Usually we would use the precompiled creation functions, but those all share
+                    // the same constant properties. Since it is allowed to overwrite constants via
+                    // default values, we have to explicitly instantiate new property instances for
+                    // constants. Since the constants themselves may contain nested property instances,
+                    // we use this flag to indicate that for all nested properties, we do not want to use
+                    // the precompiled instantiation functions.
+                    this._forceInstantion = true;
+                    instantiatedChild =
+                        this._instantiatePropertyDef(currentEntry.def, in_scope, currentEntry.def.initialValue);
+                } finally {
+                    this._forceInstantion = false;
+                }
+                instantiatedChild._setAsConstant();
+
+                // Add a reference to the newly instantiate constant property to the parameters and add
+                // a command to add it into the tree
+                parameters.push(instantiatedChild);
+                creationFunctionSource += `${currentEntry.parentVarName}._append(
+                    parameters[${currentParameterIndex}], ${currentEntry.def.allowChildMerges}
+                );\n`;
+                currentParameterIndex += 1;
+            } else {
+                // Put the constructor function and the description of the property into the
+                // parameters array
+                parameters.push(currentEntry.def.constructorFunction);
+                parameters.push(currentEntry.def.entry);
+
+                // and add the instantiation call to the generated function
+                currentPropertyNumber++;
+                currentPropertyVarName = `property${currentPropertyNumber}`;
+                creationFunctionSource +=
+                    `const ${currentPropertyVarName} =
+                    new parameters[${currentParameterIndex}](parameters[${currentParameterIndex + 1}]);\n`;
+                currentParameterIndex += 2;
+
+                // Insert / append the property to the parent
+                if (currentEntry.parentVarName !== undefined) {
+                    if (currentEntry.def.optional) {
+                        creationFunctionSource += `${currentEntry.parentVarName}._insert(
+                            ${JSON.stringify(currentEntry.def.entry.id)}, ${currentPropertyVarName}, true
+                        );\n`;
+                    } else {
+                        creationFunctionSource += `${currentEntry.parentVarName}._append(
+                            ${currentPropertyVarName}, ${currentEntry.def.allowChildMerges}
+                        );\n`;
+                    }
+                } else {
+                    resultVarName = currentPropertyVarName;
+                }
+
+                // For named properties we have to add a calll to assign a GUID to the function
+                if (currentEntry.setGuid) {
+                    creationFunctionSource += `${currentPropertyVarName}.value = GuidUtils.generateGUID();\n`;
+                }
+
+                // And if there are any optional children, we add them here (should this be further optimized? I
+                // propbably would not have to be done on every instantiation, those could be stored in the prototype)
+                if (currentEntry.def.optionalChildren) {
+                    for (let [id, typeid] of Object.entries(currentEntry.def.optionalChildren)) {
+                        creationFunctionSource += `${currentPropertyVarName}._addOptionalChild(
+                            ${JSON.stringify(id)},
+                            ${JSON.stringify(typeid)}
+                        );\n`;
+                    }
+                }
+
+                // Recursively process all children of this entry
+                if (currentEntry.def.children) {
+                // Create an entry on the stack, which is later needed,
+                // to signal that all child properties have been added
+                    const parentStackEntry = {
+                        signalChildrenFinished: true,
+                        initialValue: currentEntry.def.initialValue,
+                        propertyVarname: currentPropertyVarName,
+                        parentStackEntry: currentEntry.parentStackEntry,
+                        id: currentEntry.id,
+                    };
+                    creationStack.push(parentStackEntry);
+
+                    // Recursively add all children to the stack
+                    for (let [id, child] of currentEntry.def.children) {
+                        creationStack.push({
+                            parentVarName: currentPropertyVarName,
+                            id: id,
+                            def: child,
+                            signalParent: false,
+                            setGuid: currentEntry.def.assignGuid && id === 'guid',
+                            parentStackEntry,
+                        });
+                    }
+                } else {
+                    // This is a leaf property, so if there is a default value
+                    // we directly assign it here
+                    if (initialValue !== undefined) {
+                        if (!_.isObject(initialValue.value)) {
+                            // We have a primitive property and thus direclty invoke the setValue function
+                            creationFunctionSource +=
+                                `${currentPropertyVarName}.setValue(${JSON.stringify(initialValue.value)});\n`;
+                        } else {
+                            // For non primitive properties, we currently use the member on the property factory,
+                            // probably we could further optimize this to directly call the correct function on the
+                            // property
+                            creationFunctionSource +=
+                                `this._setInitialValue(${currentPropertyVarName},
+                                                        ${JSON.stringify(initialValue)},
+                                                        false);\n`;
+                        }
+                    }
+
+                    // If this property is constant, we assign the constant flag
+                    if (currentEntry.def.constant) {
+                        creationFunctionSource += `${currentPropertyVarName}._setAsConstant();\n`;
+                    }
+
+                    // If necessary, signal that the propert has been fully initialized (is this ever needed?)
+                    if (currentEntry.def.signal) {
+                        creationFunctionSource += `${currentPropertyVarName}._signalAllStaticMembersHaveBeenAdded(
+                            ${JSON.stringify(in_scope)}
+                        );\n`;
+                    }
+                }
+            }
+        }
+
+        // Add the return statement at the end of the function
+        creationFunctionSource += ` return ${resultVarName};`;
+
+        // Finally, create the actual JS function with the source we compiled above
+        let creationFunction = new Function('parameters',' GuidUtils', creationFunctionSource).bind(this,
+            parameters, GuidUtils);
+
+        // Add the created function to the cache
+        let scopesFunction = this._cachedCreationFunctions.get(in_typeid);
+        if (!scopesFunction) {
+            scopesFunction = new Map();
+            this._cachedCreationFunctions.set(in_typeid, scopesFunction);
+        }
+        let contextsFunction = scopesFunction.get(in_scope);
+        if (!contextsFunction) {
+            contextsFunction = new Map();
+            scopesFunction.set(in_scope, contextsFunction);
+        }
+        contextsFunction.set(in_context, creationFunction);
+
+        return creationFunction;
+    }
 
     /**
      * Sets a value to a property
@@ -1006,8 +1373,10 @@ class PropertyFactory {
      * @param {boolean} typed - Whether the value has a different type than the property (polymorphic).
      * @param {string} typeid - THe typeid of the property.
      */
-    _setInitialValue(property, valueParsed) {
-        property._unsetAsConstant();
+    _setInitialValue(property, valueParsed, unsetConstant) {
+        if (unsetConstant) {
+            property._unsetAsConstant();
+        }
         if (property instanceof ValueProperty || property instanceof StringProperty) {
             property.setValue(valueParsed.value);
         } else if (valueParsed.typed) {
@@ -1019,7 +1388,7 @@ class PropertyFactory {
         } else {
             property._setValues(valueParsed.value, false, true);
         }
-    };
+    }
 
     /**
      * Create an instance of the given property typeid if there is a template registered for it.
@@ -1030,15 +1399,12 @@ class PropertyFactory {
      *                               Accepted values are "single" (default), "array", "map" and "set".
      * @param {object=} in_initialProperties A set of initial values for the PropertySet being created
      * @param {object=} in_options Additional options
-     * @param {property-properties.Workspace} [in_options.workspace] A checked out workspace to check against. If supplied,
-     *  the function will check against the schemas that have been registered within the workspace
-     * @throws if the property does not have a unique id.
-     * @throws if the property has a typeid that is not registered.
+     *
      * @return {property-properties.BaseProperty|undefined} the property instance
      */
     create(in_typeid, in_context, in_initialProperties) {
-        return this._createProperty(in_typeid, in_context, in_initialProperties, null, true);
-    };
+        return this._createProperty(in_typeid, in_context, in_initialProperties, null);
+    }
 
     /**
      * Creates a  constructor function for the given typeid and id. The function will inherit from the
@@ -1082,7 +1448,7 @@ class PropertyFactory {
         // sure whether we want to use a dynamic eval for this. It might be flagged by some security scans
         // It should be safe, since we control the name of constructorClasses for properties
         // eslint-disable-next-line no-new-func
-        var propertyConstructorFunction = class extends in_baseConstructor { }
+        var propertyConstructorFunction = class extends in_baseConstructor { };
         propertyConstructorFunction.prototype._typeid = in_typeid;
 
         Object.defineProperty(propertyConstructorFunction, 'name', { value: in_baseConstructor.name });
@@ -1094,16 +1460,14 @@ class PropertyFactory {
         this._typedPropertyConstructorCache[key] = propertyConstructorFunction;
 
         return propertyConstructorFunction;
-    };
+    }
 
     /**
-     * Creates a property object that serves as parent for the template with the given typeid, when none has yet
-     * been created,
+     * Creates a property definition for a non-collection property with the entry and constructor function assigned
+     * Children will be added later by parseTemplate.
      *
      * @param {string}                               in_typeid - The type unique identifier
      * @param {string}                               in_id     - The id of the property to create
-     * @param {property-properties.BaseProperty} in_parent - The parent property object. If
-     *                                                           it exists it will be returned
      * @param {property-properties.PropertyTemplate|object|property-properties.BaseProperty} in_templateOrConstructor -
      *        the Template/Property for this in_typeid
      * @param {string|undefined} in_scope - The scope in which the property typeid is defined
@@ -1111,16 +1475,12 @@ class PropertyFactory {
      * @return {property-properties.BaseProperty} The property that serves as parent for the properties in the template
      * @private
      */
-    _ensurePropertyParentExists(in_typeid, in_id, in_parent,
-        in_templateOrConstructor, in_scope) {
-        // If we already have a parent, we just return it
-        if (in_parent) {
-            return in_parent;
-        }
+    _createNonCollectionPropertyDef(in_typeid, in_id,
+        in_templateOrConstructor, in_scope, propertyDef) {
         let ConstructorFunction;
         const params = {
             typeid: in_typeid,
-            id: in_id
+            id: in_id,
         };
 
         if (this.inheritsFrom(in_typeid, 'NamedProperty', { scope: in_scope })) {
@@ -1137,19 +1497,26 @@ class PropertyFactory {
                 break;
             case 'NodeProperty':
                 ConstructorFunction = NodeProperty;
+                params.typeid = params.typeid || 'NodeProperty';
                 break;
             case 'NamedProperty':
                 ConstructorFunction = NamedProperty;
+                params.typeid = params.typeid || 'NamedProperty';
                 break;
             default:
                 ConstructorFunction = ContainerProperty;
+                params.typeid = params.typeid || 'ContainerProperty';
         }
 
         ConstructorFunction = this._getConstructorFunctionForTypeidAndID(
             'single', in_typeid, ConstructorFunction, in_id, in_scope);
 
-        return new ConstructorFunction(params);
-    };
+        propertyDef.constructorFunction = ConstructorFunction;
+        propertyDef.signal = true;
+        propertyDef.entry = params;
+        propertyDef.context = 'single';
+        propertyDef.typeid = in_typeid;
+    }
 
     /**
      * Check whether a typeid is registered
@@ -1160,7 +1527,7 @@ class PropertyFactory {
      */
     _isRegisteredTypeid(in_typeid, in_scope) {
         return !!this._get(in_typeid, undefined, in_scope);
-    };
+    }
 
     /**
      * Checks if there exists a registered template with a corresponding typeid
@@ -1184,7 +1551,7 @@ class PropertyFactory {
         }
 
         return registered;
-    };
+    }
 
     /**
      * Check whether the given typeid is a specialized constructor
@@ -1195,7 +1562,7 @@ class PropertyFactory {
      */
     _isSpecializedConstructor(in_typeid) {
         return this._localPrimitivePropertiesAndTemplates.item(in_typeid) instanceof Collection;
-    };
+    }
 
     /**
      * Generate the typeid according to multiple settings
@@ -1206,14 +1573,12 @@ class PropertyFactory {
      * @param {string=}                     [in_propertiesEntry.context]    - Context in which the property is created
      * @param {Object=}                     [in_propertiesEntry.properties] - Context in which the property is created
      * @param {number}                      [in_propertiesEntry.length]     - The length of an array property
-     * @param {property-properties.BaseProperty}  in_parent                      - The parent property which will be used as
-     *                                                                        the root to construct the property template
      * @param {string} in_scope - The scope in which the property typeid is defined
      * @param {string} context - The context of the property
      *
      * @return {string} The typeid.
      */
-    _computeTypeid(in_propertiesEntry, in_parent, in_scope, context) {
+    _computeTypeid(in_propertiesEntry, in_scope, context) {
         var typeid = in_propertiesEntry.typeid;
         if (context === 'single') {
             var valueParsed = this._parseTypedValue(in_propertiesEntry, in_scope, context);
@@ -1230,10 +1595,10 @@ class PropertyFactory {
             typeid = 'Reference';
         }
         return typeid;
-    };
+    }
 
     /**
-     * Create an instance of the given property from an entry in the properties list.
+     * Creates a propertyDef for the given properties entry
      *
      * @param {Object}                       in_propertiesEntry             - Describes the property object to create
      * @param {string=}                     [in_propertiesEntry.id]         - The name of the property
@@ -1241,21 +1606,15 @@ class PropertyFactory {
      * @param {string=}                     [in_propertiesEntry.context]    - Context in which the property is created
      * @param {Object=}                     [in_propertiesEntry.properties] - Context in which the property is created
      * @param {number}                      [in_propertiesEntry.length]     - The length of an array property
-     * @param {property-properties.BaseProperty}  in_parent                      - The parent property which will be used as
-     *                                                                        the root to construct the property template
-     * @param {string} [in_scope] - The scope in which the property typeid is defined
-     * @param {boolean} [in_evaluateConstants] - If constants need to be traversed and created
-     *
-     * @return {property-properties.BaseProperty|undefined} the property instance
+     * @param {string}                       in_scope                       - The scope in which the property
+     *                                                                        typeid is defined
+     * @param {Object}                       out_propertyDef                - The created property definition
      */
-    _createFromPropertyDeclaration(
-        in_propertiesEntry, in_parent, in_scope, in_evaluateConstants) {
-
+    _createDefFromPropertyDeclaration(in_propertiesEntry, in_scope, out_propertyDef) {
         var context = in_propertiesEntry.context !== undefined ? in_propertiesEntry.context : 'single';
-        var typeid = this._computeTypeid(in_propertiesEntry, in_parent, in_scope, context);
+        var typeid = this._computeTypeid(in_propertiesEntry, in_scope, context);
         var referenceTarget = typeid === 'Reference' ?
             TypeIdHelper.extractReferenceTargetTypeIdFromReference(in_propertiesEntry.typeid) : undefined;
-        var parent = undefined;
 
         if (typeid) {
             if (this._isRegisteredTypeid(typeid, in_scope) &&
@@ -1273,6 +1632,12 @@ class PropertyFactory {
                             in_scope);
                     }
 
+                    out_propertyDef.constructorFunction = templateOrConstructor;
+                    out_propertyDef.signal = false;
+                    out_propertyDef.entry = in_propertiesEntry;
+                    out_propertyDef.context = in_propertiesEntry.context;
+                    out_propertyDef.typeid = in_propertiesEntry.typeid;
+
                     // If this is a primitive type, we create it via the registered constructor
                     var result = new templateOrConstructor(in_propertiesEntry); // eslint-disable-line new-cap
                     return result;
@@ -1283,31 +1648,33 @@ class PropertyFactory {
                         // If we have a template in a single context, we create it directly here
 
                         // Create the base object
-                        parent = this._ensurePropertyParentExists(
+                        this._createNonCollectionPropertyDef(
                             typeid,
                             in_propertiesEntry.id,
-                            in_parent,
                             templateOrConstructor,
-                            in_scope
+                            in_scope,
+                            out_propertyDef,
                         );
 
-                        this._parseTemplate(templateOrConstructor, parent, in_scope,
-                            !!(templateOrConstructor.inherits), in_evaluateConstants);
+                        this._parseTemplate(templateOrConstructor, in_scope,
+                            !!(templateOrConstructor.inherits), out_propertyDef);
                     } else {
                         // If we have other contexts, we have to create the corresponding property object for that context
 
                         // check if a specialized collection is needed
                         var isEnum = this.inheritsFrom(typeid, 'Enum', { scope: in_scope });
 
-                        var result;
+                        var constructorFunction;
                         switch (context) {
                             case 'array':
                                 if (isEnum) {
                                     var enumPropertyEntry = deepCopy(in_propertiesEntry);
                                     enumPropertyEntry._enumDictionary = templateOrConstructor._enumDictionary;
-                                    result = new EnumArrayProperty(enumPropertyEntry);
+                                    in_propertiesEntry = enumPropertyEntry;
+
+                                    constructorFunction = EnumArrayProperty;
                                 } else {
-                                    result = new ArrayProperty(in_propertiesEntry, in_scope);
+                                    constructorFunction = ArrayProperty;
                                 }
                                 break;
                             case 'set':
@@ -1317,15 +1684,20 @@ class PropertyFactory {
                                     throw new Error(MSG.SET_ONLY_NAMED_PROPS + typeid);
                                 }
 
-                                result = new SetProperty(in_propertiesEntry, in_scope);
+                                constructorFunction = SetProperty;
                                 break;
                             case 'map':
-                                result = new MapProperty(in_propertiesEntry, in_scope);
+                                constructorFunction = MapProperty;
                                 break;
                             default:
                                 throw new Error(MSG.UNKNOWN_CONTEXT_SPECIFIED + context);
                         }
-                        return result;
+
+                        out_propertyDef.constructorFunction = constructorFunction;
+                        out_propertyDef.signal = false;
+                        out_propertyDef.entry = in_propertiesEntry;
+                        out_propertyDef.typeid = typeid;
+                        out_propertyDef.context = context;
                     }
                 }
             } else {
@@ -1340,22 +1712,23 @@ class PropertyFactory {
                 in_propertiesEntry.properties = [];
             }
 
-            if (!parent) {
-                // If this is a declaration which contains a properties list, we have to create a new base property for it
-                parent = new ContainerProperty(in_propertiesEntry);
-            }
+            // If this is a declaration which contains a properties list, we have to create a new container property for it
+            let copiedPropertyEntry = Object.assign({typeid: 'ContainerProperty'}, in_propertiesEntry);
+            out_propertyDef.constructorFunction = ContainerProperty;
+            out_propertyDef.entry = copiedPropertyEntry;
+            out_propertyDef.signal = false;
+            out_propertyDef.typeid = copiedPropertyEntry.typeid;
+            out_propertyDef.context = 'single';
 
             // And then parse the entry like a template
-            this._parseTemplate(in_propertiesEntry, parent, in_scope, false, in_evaluateConstants);
+            this._parseTemplate(in_propertiesEntry, in_scope, false, out_propertyDef);
         }
 
         // If this property inherits from NamedProperty we assign a random GUID
         if (typeid && this.inheritsFrom(typeid, 'NamedProperty', { scope: in_scope })) {
-            parent.get('guid', { referenceResolutionMode: BaseProperty.REFERENCE_RESOLUTION.NEVER }).value = GuidUtils.generateGUID();
+            out_propertyDef.assignGuid = true;
         }
-
-        return parent;
-    };
+    }
 
     /**
      * Method used to determine whether the given object is a property constructor
@@ -1368,7 +1741,7 @@ class PropertyFactory {
         // TODO: This tests seems dangerous. I think it is based on the assumption that constructor is not
         //       overwritten in the derived classes (which it probably should be)
         return (in_obj.constructor && in_obj.constructor === ContainerProperty.constructor);
-    };
+    }
 
     /**
      * Checks whether the property has a typedValue and replaces the value and the typeid
@@ -1384,7 +1757,7 @@ class PropertyFactory {
         var res = {
             typed: false,
             value: in_property.value,
-            typeid: in_property.typeid
+            typeid: in_property.typeid,
         };
 
         if (in_property.typedValue) {
@@ -1414,22 +1787,19 @@ class PropertyFactory {
         }
 
         return res;
-    };
+    }
 
     /**
-     * Parse a given property template appending its property and constant objects to the given property parent object
+     * Parse a given property template appending its property and constant objects to the given propertyDef
      *
      * @param {property-properties.PropertyTemplate} in_template - template for the property
-     * @param {property-properties.BaseProperty}     in_parent   - the parent
      * @param {string} in_scope - The scope in which in_template is defined in
      * @param {boolean} in_allowChildMerges - Whether merging of children (nested properties) is allowed.
      *                                        This is used for extending inherited properties.
-     * @param {boolean} [in_evaluateConstants] - If constants need to be traversed and created
+     * @param {Object} out_propertyDef - The created property definition
      * @private
      */
-    _parseTemplate(
-        in_template, in_parent, in_scope, in_allowChildMerges, in_evaluateConstants) {
-
+    _parseTemplate(in_template, in_scope, in_allowChildMerges, propertyDef) {
         // Check if there are nested property arrays
         if (!(in_template.inherits && in_template.inherits.indexOf('Enum') !== -1)) {
             if (in_template.properties) {
@@ -1444,41 +1814,55 @@ class PropertyFactory {
                     const valueParsed = this._parseTypedValue(properties[i], in_scope, context);
 
                     if (optional) {
-                        in_parent._addOptionalChild(id, typeid);
+                        propertyDef.optionalChildren = propertyDef.optionalChildren || {};
+                        propertyDef.entry.optionalChildren = true;
+                        propertyDef.optionalChildren[id] = typeid;
                     }
 
                     if (valueParsed.value) {
-                        const property = this._createFromPropertyDeclaration(properties[i], undefined, in_scope, false);
-                        this._setInitialValue(property, valueParsed);
-                        if (optional) {
-                            in_parent._insert(property.getId(), property, true);
-                        } else {
-                            in_parent._append(property, in_allowChildMerges);
-                        }
+                        const newChildEntry = {
+                            initialValue: valueParsed,
+                            optional,
+                            allowChildMerges: in_allowChildMerges,
+                        };
+                        propertyDef.children = propertyDef.children || [];
+                        propertyDef.children.unshift([properties[i].id, newChildEntry]);
+                        this._createDefFromPropertyDeclaration(properties[i],
+                                                               in_scope, newChildEntry);
                     } else if (!optional) {
-                        const property = this._createFromPropertyDeclaration(properties[i], undefined, in_scope, false);
-                        in_parent._append(property, in_allowChildMerges);
+                        const newChildEntry = {
+                            initialValue: undefined,
+                        };
+                        propertyDef.children = propertyDef.children || [];
+                        propertyDef.children.unshift([properties[i].id, newChildEntry]);
+                        this._createDefFromPropertyDeclaration(properties[i],
+                                                               in_scope, newChildEntry);
                     }
                 }
             }
 
-            if (in_evaluateConstants && in_template.constants) {
+            if (in_template.constants) {
                 const constants = in_template.constants;
                 for (let i = 0; i < constants.length; i++) {
                     const context = constants[i].context || 'single';
                     const valueParsed = this._parseTypedValue(constants[i], in_scope, context);
-                    const constant = this._createFromPropertyDeclaration(constants[i], undefined, in_scope, true);
+
+                    const newChildEntry = {
+                        initialValue: undefined,
+                        constant: true,
+                    };
+                    propertyDef.children = propertyDef.children || [];
+                    propertyDef.children.unshift([constants[i].id, newChildEntry]);
+
+                    this._createDefFromPropertyDeclaration(constants[i], in_scope, newChildEntry);
 
                     if (valueParsed.value) {
-                        this._setInitialValue(constant, valueParsed);
+                        newChildEntry.initialValue = valueParsed;
                     }
-
-                    constant._setAsConstant();
-                    in_parent._append(constant, false);
                 }
             }
         }
-    };
+    }
 
     // private params:
     // @param {string} [in_options.scope]    - The scope in which the property typeid is defined
@@ -1529,7 +1913,7 @@ class PropertyFactory {
 
             return parents[in_baseTypeid] !== undefined;
         }
-    };
+    }
 
     // private params:
     // @param {string|undefined}  [in_options.scope] - The scope in which the template was stored.
@@ -1559,7 +1943,7 @@ class PropertyFactory {
         this._getAllParentsForTemplateInternal(in_typeid, parents, !!in_options.includeBaseProperty, scope);
 
         return _.keys(parents);
-    };
+    }
 
     /**
      * Returns all the typeids the template inherits from (including all possible paths through multiple inheritance).
@@ -1608,7 +1992,7 @@ class PropertyFactory {
                 this._getAllParentsForTemplateInternal(parents[i], out_parents, undefined, in_scope);
             }
         }
-    };
+    }
 
     /**
      * Internal function used to clear and reinitialize the PropertyFactory
@@ -1622,7 +2006,7 @@ class PropertyFactory {
         this._typedPropertyConstructorCache = {};
 
         this._init();
-    };
+    }
 
     /**
      * Reregisters a template (by overwriting the existing template).
@@ -1663,9 +2047,12 @@ class PropertyFactory {
             }
         }
 
+        // Remove from typeid creation cache
+        this._cachedCreationFunctions.delete(typeid);
+
         // And repeat the registration
         registerLocal.call(this, in_template);
-    };
+    }
 
     /**
     * Initializes the schema store.
@@ -1677,7 +2064,7 @@ class PropertyFactory {
     *
     * @return {Promise} Return an empty promise when checkout resolve or reject with error.
     */
-    initializeSchemaStore(in_options) {
+    async initializeSchemaStore(in_options) {
         // https://regex101.com/r/TlgGJp/2
         var regexBaseUrl = /^(https?:)?\/\/((.[-a-zA-Z0-9@:%_+~#=.]{2,256}){1,2}\.[a-z]{2,6}|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(:\d{1,5})?(\/[-a-zA-Z0-9@:%_+.~#?&/=]*)*$/; // eslint-disable-line max-len
 
@@ -1696,7 +2083,7 @@ class PropertyFactory {
         this._templateStore = new ForgeSchemaStore(in_options);
 
         return Promise.resolve();
-    };
+    }
 
     /**
      * Pushes a template request task onto the template requests queue
@@ -1709,15 +2096,15 @@ class PropertyFactory {
     _retrieveTemplateRequestWorker(in_task, in_callback) {
         var store = in_task.context;
         if (store) {
-            store.retrieveTemplate(in_task.typeid).then(function (response) {
+            store.retrieveTemplate(in_task.typeid).then(function(response) {
                 in_callback(response);
-            }).catch(function (error) {
+            }).catch(function(error) {
                 in_callback({ error: error });
             });
         } else {
             throw new Error(MSG.INVALID_TEMPLATE_STORE);
         }
-    };
+    }
 
     /**
      * Tries to resolve dependencies after some calls to register() have been made
@@ -1739,7 +2126,7 @@ class PropertyFactory {
      * }
      *
      */
-    resolveSchemas() {
+    async resolveSchemas() {
         // Only one queue at a time can be processed.
         if (this.templateRequestsQueue !== undefined) {
             return Promise.reject(new Error(MSG.DEPENDENCIES_RESOLUTION_IN_PROGRESS));
@@ -1750,7 +2137,7 @@ class PropertyFactory {
         var that = this;
 
         // 0. Inspect locally registered templates for unknown dependencies
-        this._localPrimitivePropertiesAndTemplates.iterate(function (key, type) {
+        this._localPrimitivePropertiesAndTemplates.iterate(function(key, type) {
             if (!that._isSpecializedConstructor(key) && PropertyTemplate.isTemplate(type.getPropertyTemplate())) {
                 var unknownDeps = _extractUnknownDependencies.call(that, type.getPropertyTemplate());
                 for (var d = 0; d < unknownDeps.length; d++) {
@@ -1778,12 +2165,12 @@ class PropertyFactory {
             _pushTemplateRequestTask.call(that, typeid);
         }
 
-        return new Promise(function (resolve, reject) {
+        return new Promise(function(resolve, reject) {
             if (that.templateRequestsQueue.length() === 0) {
                 resolve({ errors: {}, schemas: {} });
                 that.templateRequestsQueue = undefined;
             } else {
-                that.templateRequestsQueue.drain = function () {
+                that.templateRequestsQueue.drain = function() {
                     var errors = _.compact(_.pluck(that.templateRequestsResults.errors, 'typeid'));
                     var results = that.templateRequestsResults;
                     var resultsKeys = Object.keys(that.templateRequestsResults.schemas);
@@ -1842,7 +2229,7 @@ class PropertyFactory {
                 };
             }
         });
-    };
+    }
 
     /**
      * Determines whether the given property is an instance of the property type corresponding to the given native
@@ -1861,8 +2248,7 @@ class PropertyFactory {
             result = in_property instanceof templateConstructor;
         }
         return result;
-    };
-
+    }
 }
 
 const PropertyFactorySingleton = new PropertyFactory();

@@ -68,7 +68,12 @@ describeNoCompat("Cache CreateNewSummary", (getTestObjectProvider) => {
         }
     });
 
-    it("should fetch from cache when second client loads the container", async () => {
+    it("should fetch from cache when second client loads the container", async function() {
+        // GitHub issue: #9534
+        if(provider.driver.type === "odsp") {
+            this.skip();
+        }
+
         mockLogger = new MockLogger();
 
         // Create a container for the first client.
@@ -84,8 +89,10 @@ describeNoCompat("Cache CreateNewSummary", (getTestObjectProvider) => {
         const container2 = await provider.loadContainer(runtimeFactory, { logger: mockLogger });
         const defaultDataStore = await requestFluidObject<TestDataObject>(container2, "default");
 
+        await provider.ensureSynchronized();
+
         // getting the non-default data store and validate it is loaded
-        const handle2 = await defaultDataStore._root.wait("dataStore2");
+        const handle2 = defaultDataStore._root.get("dataStore2");
         const testDataStore: TestDataObject = await handle2.get();
         assert(testDataStore !== undefined, "2nd data store within loaded container is not loaded");
 
@@ -97,7 +104,11 @@ describeNoCompat("Cache CreateNewSummary", (getTestObjectProvider) => {
             `second client fetched snapshot with ${fetchEvent.method} method instead of from cache`);
     });
 
-    it("should fetch from cache when second client loads the container in offline mode", async () => {
+    it("should fetch from cache when second client loads the container in offline mode", async function() {
+        // GitHub issue: #9534
+        if(provider.driver.type === "odsp") {
+            this.skip();
+        }
         mockLogger = new MockLogger();
 
         // Create a container for the first client. While attaching the odsp driver will cache the summary
@@ -119,8 +130,10 @@ describeNoCompat("Cache CreateNewSummary", (getTestObjectProvider) => {
         const container2 = await provider.loadContainer(runtimeFactory, { logger: mockLogger });
         const defaultDataStore = await requestFluidObject<TestDataObject>(container2, "default");
 
+        await provider.ensureSynchronized();
+
         // getting the non-default data store and validate it is loaded
-        const handle2 = await defaultDataStore._root.wait("dataStore2");
+        const handle2 = defaultDataStore._root.get("dataStore2");
         const testDataStore: TestDataObject = await handle2.get();
         assert(testDataStore !== undefined, "2nd data store within loaded container is not loaded");
 

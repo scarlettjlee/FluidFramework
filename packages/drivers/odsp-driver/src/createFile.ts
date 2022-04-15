@@ -37,6 +37,7 @@ import { EpochTracker } from "./epochTracker";
 import { OdspDriverUrlResolver } from "./odspDriverUrlResolver";
 import { convertCreateNewSummaryTreeToTreeAndBlobs } from "./createNewUtils";
 import { runWithRetry } from "./retryUtils";
+import { pkgVersion as driverVersion } from "./packageVersion";
 
 const isInvalidFileName = (fileName: string): boolean => {
     const invalidCharsRegex = /["*/:<>?\\|]+/g;
@@ -55,11 +56,13 @@ export async function createNewFluidFile(
     epochTracker: EpochTracker,
     fileEntry: IFileEntry,
     createNewCaching: boolean,
+    forceAccessTokenViaAuthorizationHeader: boolean,
 ): Promise<IOdspResolvedUrl> {
     // Check for valid filename before the request to create file is actually made.
     if (isInvalidFileName(newFileInfo.filename)) {
         throw new NonRetryableError(
-            "createNewInvalidFilename", "Invalid filename", OdspErrorType.invalidFileNameError);
+            // pre-0.58 error message: Invalid filename
+            "Invalid filename for createNew", OdspErrorType.invalidFileNameError, { driverVersion });
     }
 
     let itemId: string;
@@ -67,10 +70,17 @@ export async function createNewFluidFile(
     let sharingLink: string | undefined;
     let sharingLinkErrorReason: string | undefined;
     if (createNewSummary === undefined) {
-        itemId = await createNewEmptyFluidFile(getStorageToken, newFileInfo, logger, epochTracker);
+        itemId = await createNewEmptyFluidFile(
+            getStorageToken, newFileInfo, logger, epochTracker, forceAccessTokenViaAuthorizationHeader);
     } else {
         const content = await createNewFluidFileFromSummary(
-            getStorageToken, newFileInfo, logger, createNewSummary, epochTracker);
+            getStorageToken,
+            newFileInfo,
+            logger,
+            createNewSummary,
+            epochTracker,
+            forceAccessTokenViaAuthorizationHeader,
+        );
         itemId = content.itemId;
         summaryHandle = content.id;
         sharingLink = content.sharingLink;
@@ -108,6 +118,7 @@ export async function createNewEmptyFluidFile(
     newFileInfo: INewFileInfo,
     logger: ITelemetryLogger,
     epochTracker: EpochTracker,
+    forceAccessTokenViaAuthorizationHeader: boolean,
 ): Promise<string> {
     const filePath = newFileInfo.filePath ? encodeURIComponent(`/${newFileInfo.filePath}`) : "";
     // add .tmp extension to empty file (host is expected to rename)
@@ -123,7 +134,8 @@ export async function createNewEmptyFluidFile(
             logger,
             { eventName: "createNewEmptyFile" },
             async (event) => {
-                const { url, headers } = getUrlAndHeadersWithAuth(initialUrl, storageToken);
+                const { url, headers } = getUrlAndHeadersWithAuth(
+                    initialUrl, storageToken, forceAccessTokenViaAuthorizationHeader);
                 headers["Content-Type"] = "application/json";
 
                 const fetchResponse = await runWithRetry(
@@ -143,13 +155,14 @@ export async function createNewEmptyFluidFile(
                 const content = fetchResponse.content;
                 if (!content || !content.id) {
                     throw new NonRetryableError(
-                        "createEmptyFileNoItemId",
-                        "ODSP CreateFile call returned no item ID",
-                        DriverErrorType.incorrectServerResponse);
+                        // pre-0.58 error message: ODSP CreateFile call returned no item ID
+                        "ODSP CreateFile call returned no item ID (for empty file)",
+                        DriverErrorType.incorrectServerResponse,
+                        { driverVersion });
                 }
                 event.end({
                     headers: Object.keys(headers).length !== 0 ? true : undefined,
-                    ...fetchResponse.commonSpoHeaders,
+                    ...fetchResponse.propsToLog,
                 });
                 return content.id;
             },
@@ -163,6 +176,7 @@ export async function createNewFluidFileFromSummary(
     logger: ITelemetryLogger,
     createNewSummary: ISummaryTree,
     epochTracker: EpochTracker,
+    forceAccessTokenViaAuthorizationHeader: boolean,
 ): Promise<ICreateFileResponse> {
     const filePath = newFileInfo.filePath ? encodeURIComponent(`/${newFileInfo.filePath}`) : "";
     const encodedFilename = encodeURIComponent(newFileInfo.filename);
@@ -181,7 +195,8 @@ export async function createNewFluidFileFromSummary(
             logger,
             { eventName: "createNewFile" },
             async (event) => {
-                const { url, headers } = getUrlAndHeadersWithAuth(initialUrl, storageToken);
+                const { url, headers } = getUrlAndHeadersWithAuth(
+                    initialUrl, storageToken, forceAccessTokenViaAuthorizationHeader);
                 headers["Content-Type"] = "application/json";
 
                 const fetchResponse = await runWithRetry(
@@ -201,14 +216,14 @@ export async function createNewFluidFileFromSummary(
                 const content = fetchResponse.content;
                 if (!content || !content.itemId) {
                     throw new NonRetryableError(
-                        "createFileNoItemId",
                         "ODSP CreateFile call returned no item ID",
-                        DriverErrorType.incorrectServerResponse);
+                        DriverErrorType.incorrectServerResponse,
+                        { driverVersion });
                 }
                 event.end({
                     headers: Object.keys(headers).length !== 0 ? true : undefined,
                     attempts: options.refresh ? 2 : 1,
-                    ...fetchResponse.commonSpoHeaders,
+                    ...fetchResponse.propsToLog,
                 });
                 return content;
             },

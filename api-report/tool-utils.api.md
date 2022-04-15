@@ -9,7 +9,7 @@ import { IOdspTokens } from '@fluidframework/odsp-doclib-utils';
 import { ITree } from '@fluidframework/protocol-definitions';
 
 // @public (undocumented)
-export const gcBlobKey = "gc";
+export const gcBlobPrefix = "__gc";
 
 // @public (undocumented)
 export const getMicrosoftConfiguration: () => IClientConfig;
@@ -53,6 +53,7 @@ export interface IResources {
 export interface ISnapshotNormalizerConfig {
     // (undocumented)
     blobsToNormalize?: string[];
+    excludedChannelContentTypes?: string[];
 }
 
 // @public (undocumented)

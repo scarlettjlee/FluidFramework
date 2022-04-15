@@ -276,6 +276,21 @@ export class FluidPackageCheck {
                 }
             }
 
+            if(pkg.getScript("typetests:gen")){
+                // typetests:gen should be in build:commonjs if it exists, otherwise, it should be in build:compile
+                const buildTargetScripts =
+                    pkg.getScript("build:commonjs") ? buildCommonJs : buildCompile;
+                if(pkg.getScript("build:test")){
+                    // if there is a test target put test type gen after tsc
+                    // as the type test will build with the tests
+                    buildTargetScripts.push("typetests:gen");
+                }else{
+                    // if there is no test target put it before tsc
+                    // so type test build with tsc
+                    buildTargetScripts.unshift("typetests:gen");
+                }
+            }
+
             const splitTestBuild = this.splitTestBuild(pkg, true);
             // build:test should be in build:commonjs if it exists, otherwise, it should be in build:compile
             if (pkg.getScript("build:test") || splitTestBuild) {
@@ -361,7 +376,7 @@ export class FluidPackageCheck {
 
             const testDirs = this.getTestDirs(pkg);
             if (testDirs.length === 1) {
-                const expectedBuildTest = `tsc --project ./src/test/${testDirs[0]? testDirs[0] + "/": ""}tsconfig.json`;
+                const expectedBuildTest = `tsc --project ./src/test/${testDirs[0] ? testDirs[0] + "/" : ""}tsconfig.json`;
                 if (this.checkScript(pkg, "build:test", expectedBuildTest, fix)) {
                     fixed = true;
                 }
@@ -424,7 +439,10 @@ export class FluidPackageCheck {
             if (this.checkScript(pkg, "eslint", expectedEslintScript, fix)) {
                 fixed = true;
             }
-            if (this.checkScript(pkg, "eslint:fix", `${expectedEslintScript} --fix`, fix)) {
+
+            const eslintFixScript = pkg.getScript("eslint:fix");
+            const hasFixType = eslintFixScript && eslintFixScript.search("--fix-type problem,suggestion,layout") >= 0;
+            if (this.checkScript(pkg, "eslint:fix", `${expectedEslintScript} --fix${hasFixType ? " --fix-type problem,suggestion,layout" : ""}`, fix)) {
                 fixed = true;
             }
         }
@@ -588,22 +606,28 @@ export class FluidPackageCheck {
     }
     private static async checkOneTestDir(pkg: Package, fix: boolean, subDir: string) {
         const configFile = path.join(this.getTestBaseDir(pkg), subDir, "tsconfig.json");
-        const outDir = subDir ? `../../../dist/test/${subDir}` : `../../dist/test`;
-        const referencePath = subDir ? "../../.." : "../..";
-        const compilerOptions = {
-            rootDir: "./",
-            outDir,
-            types: ["node", ...(subDir === "jest" ?
-                ["jest", "jest-environment-puppeteer", "puppeteer"] : ["mocha"])]
-        };
-
         let configJson;
-        let changed = false;
         configJson = TscUtils.readConfigFile(configFile);
         if (!configJson) {
             this.logWarn(pkg, `Unable to read ${configFile}`, false);
             return;
         }
+
+        const baseDir = !subDir && configJson.compilerOptions?.rootDir === "../";
+        const rootDir = baseDir ? "../" : "./";
+        const outDir = subDir ? `../../../dist/test/${subDir}` :
+            baseDir ? "../../dist" : "../../dist/test";
+
+        const referencePath = subDir ? "../../.." : "../..";
+        const compilerOptions = {
+            rootDir,
+            outDir,
+            types: ["node", ...(subDir === "jest" ?
+                ["jest", "jest-environment-puppeteer", "puppeteer"] : ["mocha"])]
+        };
+
+        let changed = false;
+
         if (await this.checkTsConfigExtend(pkg, fix, configJson, configFile)) {
             changed = true;
         }
@@ -614,6 +638,9 @@ export class FluidPackageCheck {
                 changed = true;
             }
         } else {
+            if (this.checkProperty(configFile, pkg, configJson.compilerOptions, "rootDir", rootDir, fix)) {
+                changed = true;
+            }
             if (this.checkProperty(configFile, pkg, configJson.compilerOptions, "outDir", outDir, fix)) {
                 changed = true;
             }
@@ -661,10 +688,10 @@ export class FluidPackageCheck {
     private static getTestDirs(pkg: Package, warnNoSource = false) {
         const testSrcBaseDir = this.getTestBaseDir(pkg);
         if (this.isTestDir(pkg, testSrcBaseDir, warnNoSource)) {
-            return [ "" ];
+            return [""];
         }
 
-        const testSrcDirNames = [ "mocha", "jest", "types"];
+        const testSrcDirNames = ["mocha", "jest", "types"];
         return testSrcDirNames.filter((maybeTestDirName) => {
             const maybeTestDir = path.join(testSrcBaseDir, maybeTestDirName);
             return this.isTestDir(pkg, maybeTestDir, warnNoSource);
@@ -691,7 +718,7 @@ export class FluidPackageCheck {
                 continue;
             }
             const files = fs.readdirSync(dir, { withFileTypes: true });
-            if (files.some((dirent) => !dirent.isDirectory() && dirent.name.endsWith(".ts"))) {
+            if (files.some((dirent) => !dirent.isDirectory() && (dirent.name.endsWith(".ts") || dirent.name.endsWith(".spec.js")))) {
                 return true;
             }
             dirs.push(...files.filter((dirent) => dirent.isDirectory()).map((dirent) => path.join(dir, dirent.name)));

@@ -5,12 +5,12 @@
 
 import { assert } from "@fluidframework/common-utils";
 import {
-    IFluidObject,
     IResponse,
     IRequest,
     IFluidHandle,
     IFluidLoadable,
     FluidObject,
+    IFluidRouter,
 } from "@fluidframework/core-interfaces";
 import { IContainerRuntime } from "@fluidframework/container-runtime-definitions";
 import { IContainerRuntimeBase } from "@fluidframework/runtime-definitions";
@@ -35,12 +35,17 @@ export const rootDataStoreRequestHandler = async (request: IRequest, runtime: IC
     const requestParser = RequestParser.create(request);
     const id = requestParser.pathParts[0];
     const wait = typeof request.headers?.wait === "boolean" ? request.headers.wait : undefined;
+    let rootDataStore: IFluidRouter;
     try {
         // getRootDataStore currently throws if the data store is not found
-        const rootDataStore = await runtime.getRootDataStore(id, wait);
-        return rootDataStore.IFluidRouter.request(requestParser.createSubRequest(1));
+        rootDataStore = await runtime.getRootDataStore(id, wait);
     } catch (error) {
         return undefined; // continue search
+    }
+    try {
+        return rootDataStore.IFluidRouter.request(requestParser.createSubRequest(1));
+    } catch (error) {
+        return { status: 500, mimeType: "fluid/object", value: error };
     }
 };
 
@@ -49,7 +54,7 @@ export const createFluidObjectResponse = (fluidObject: FluidObject):
     return { status: 200, mimeType: "fluid/object", value: fluidObject };
 };
 
-class LegacyUriHandle<T = IFluidObject & FluidObject & IFluidLoadable> implements IFluidHandle<T> {
+class LegacyUriHandle<T = FluidObject & IFluidLoadable> implements IFluidHandle<T> {
     public readonly isAttached = true;
 
     public get IFluidHandle(): IFluidHandle { return this; }
@@ -75,8 +80,7 @@ class LegacyUriHandle<T = IFluidObject & FluidObject & IFluidLoadable> implement
     }
 }
 
-// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
-export function handleFromLegacyUri<T = IFluidObject & FluidObject & IFluidLoadable>(
+export function handleFromLegacyUri<T = FluidObject & IFluidLoadable>(
     uri: string,
     runtime: IContainerRuntimeBase,
 ): IFluidHandle<T> {

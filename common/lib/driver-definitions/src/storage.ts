@@ -98,6 +98,11 @@ export interface IDocumentStorageServicePolicies {
     // If this policy is provided, it tells runtime on ideal size for blobs
     // Blobs that are smaller than that size should be aggregated into bigger blobs
     readonly minBlobSize?: number;
+
+    /**
+     * This policy tells the runtime that the driver will not use cached snapshots older than this value.
+     */
+    readonly maximumCacheDurationMs?: number;
 }
 
 /**
@@ -299,7 +304,11 @@ export interface IDocumentServiceFactory {
     /**
      * Returns an instance of IDocumentService
      */
-    createDocumentService(resolvedUrl: IResolvedUrl, logger?: ITelemetryBaseLogger): Promise<IDocumentService>;
+     createDocumentService(
+        resolvedUrl: IResolvedUrl,
+        logger?: ITelemetryBaseLogger,
+        clientIsSummarizer?: boolean,
+    ): Promise<IDocumentService>;
 
     /**
      * Creates a new document with the provided options. Returns the document service.
@@ -310,6 +319,7 @@ export interface IDocumentServiceFactory {
         createNewSummary: ISummaryTree | undefined,
         createNewResolvedUrl: IResolvedUrl,
         logger?: ITelemetryBaseLogger,
+        clientIsSummarizer?: boolean,
     ): Promise<IDocumentService>;
 }
 
