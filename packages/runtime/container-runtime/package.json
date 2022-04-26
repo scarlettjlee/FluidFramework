@@ -114,6 +114,20 @@
   },
   "typeValidation": {
     "version": "0.59.2000",
-    "broken": {}
+    "broken": {
+      "ClassDeclaration_ContainerRuntime": {
+        "backCompat": false,
+        "forwardCompat": false
+      },
+      "InterfaceDeclaration_IGarbageCollectionRuntime": {
+        "forwardCompat": false
+      },
+      "InterfaceDeclaration_IGCStats": {
+        "forwardCompat": false
+      },
+      "InterfaceDeclaration_IRootSummaryTreeWithStats": {
+        "forwardCompat": false
+      }
+    }
   }
 }
