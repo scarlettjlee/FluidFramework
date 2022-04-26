@@ -12,7 +12,7 @@ import {
 } from "@fluidframework/protocol-definitions";
 import { FlushMode } from "@fluidframework/runtime-definitions";
 import Deque from "double-ended-queue";
-import { ContainerRuntime, ContainerMessageType } from "./containerRuntime";
+import { ContainerMessageType } from "./containerRuntime";
 
 /**
  * This represents a message that has been submitted and is added to the pending queue when `submit` is called on the
@@ -370,6 +370,27 @@ export class PendingStateManager implements IDisposable {
         // Clear the pending batch state now that we have processed the entire batch.
         this.pendingBatchBeginMessage = undefined;
         this.isProcessingBatch = false;
+    }
+
+    public checkpoint() {
+        const checkpointHead = this.pendingStates.peekBack();
+        return {
+            rollback:() => {
+                try {
+                    while(this.pendingStates.peekBack() !== checkpointHead) {
+                        this.rollbackNextPendingState();
+                    }
+                } catch(err) {
+                    const error = DataProcessingError.wrapIfUnrecognized(
+                        err,
+                        "checkpointRollback",
+                        undefined,
+                        "RollbackError: ");
+                    this.stateHandler.close(error);
+                    throw error;
+                }
+            },
+        };
     }
 
     /**
