@@ -15,7 +15,7 @@ import {
 
 import { MapFactory } from "../map";
 import { DirectoryFactory, IDirectoryNewStorageFormat, SharedDirectory } from "../directory";
-import { IDirectory } from "../interfaces";
+import { IDirectory, IDirectoryValueChanged } from "../interfaces";
 
 function createConnectedDirectory(id: string, runtimeFactory: MockContainerRuntimeFactory) {
     const dataStoreRuntime = new MockFluidDataStoreRuntime();
@@ -85,6 +85,8 @@ describe("Directory", () => {
                 let containedValueChangedExpected: boolean = true;
                 let clearExpected: boolean = false;
                 let previousValue: any;
+                let directoryCreationExpected: boolean = true;
+                let directoryDeletedExpected: boolean = true;
 
                 directory.on("op", (arg1, arg2, arg3) => {
                     assert.fail("shouldn't receive an op event");
@@ -99,6 +101,23 @@ describe("Directory", () => {
 
                     assert.equal(local, true, "local should be true for local action for valueChanged event");
                     assert.equal(target, directory, "target should be the directory for valueChanged event");
+                });
+                directory.on("subDirectoryCreated", (path, local, target) => {
+                    assert.equal(directoryCreationExpected, true, "subDirectoryCreated event not expected");
+                    directoryCreationExpected = false;
+
+                    assert.equal(path, "rock");
+
+                    assert.equal(local, true, "local should be true for local action for subDirectoryCreated event");
+                    assert.equal(target, directory, "target should be the directory for subDirectoryCreated event");
+                });
+                directory.on("subDirectoryDeleted", (path, local, target) => {
+                    assert.equal(directoryDeletedExpected, true, "subDirectoryDeleted event not expected");
+                    directoryDeletedExpected = false;
+                    assert.equal(path, "rock");
+
+                    assert.equal(local, true, "local should be true for local action for subDirectoryDeleted event");
+                    assert.equal(target, directory, "target should be the directory for subDirectoryDeleted event");
                 });
                 directory.on("containedValueChanged", (changed, local, target) => {
                     assert.equal(containedValueChangedExpected, true,
@@ -137,10 +156,61 @@ describe("Directory", () => {
                 assert.equal(valueChangedExpected, false, "missing valueChangedExpected event");
                 assert.equal(containedValueChangedExpected, false, "missing containedValueChanged event");
 
+                // Test createSubDirectory
+                directory.createSubDirectory("rock");
+                assert.equal(directoryCreationExpected, false, "missing subDirectoryCreated event");
+
+                // Test deleteSubDirectory
+                previousValue = directory.getSubDirectory("rock");
+                directory.deleteSubDirectory("rock");
+                assert.equal(valueChangedExpected, false, "missing valueChangedExpected event");
+                assert.equal(containedValueChangedExpected, false, "missing containedValueChanged event");
+
                 // Test clear
                 clearExpected = true;
                 directory.clear();
                 assert.equal(clearExpected, false, "missing clearExpected event");
+            });
+
+            it("should fire create/delete sub directory events", async () => {
+                const subDirectory = directory.createSubDirectory("rock");
+                const subDirectory1 = subDirectory.createSubDirectory("rockChild");
+                // Check Creation events
+                let directoryCreationExpected1 = false;
+                let directoryCreationExpected2 = false;
+                subDirectory.on("subDirectoryCreated", (relativePath, local, target) => {
+                    directoryCreationExpected1 = true;
+                    assert.equal(relativePath, "rockChild/rockChildChild", "Path should match");
+                });
+                subDirectory1.on("subDirectoryCreated", (relativePath, local, target) => {
+                    directoryCreationExpected2 = true;
+                    assert.equal(relativePath, "rockChildChild", "Path should match");
+                });
+                subDirectory1.createSubDirectory("rockChildChild");
+                assert(directoryCreationExpected1, "Create event should fire");
+                assert(directoryCreationExpected2, "Create event should fire");
+
+                // Check Deletion Events
+                let directoryDeletionExpected = false;
+                let directoryDeletionExpected1 = false;
+                let directoryDeletionExpected2 = false;
+                directory.on("subDirectoryDeleted", (relativePath, local, target) => {
+                    directoryDeletionExpected = true;
+                    assert.equal(relativePath, "rock/rockChild/rockChildChild", "Path should match");
+                });
+                subDirectory.on("subDirectoryDeleted", (relativePath, local, target) => {
+                    directoryDeletionExpected1 = true;
+                    assert.equal(relativePath, "rockChild/rockChildChild", "Path should match");
+                });
+                subDirectory1.on("subDirectoryDeleted", (relativePath, local, target) => {
+                    directoryDeletionExpected2 = true;
+                    assert.equal(relativePath, "rockChildChild", "Path should match");
+                });
+                subDirectory1.deleteSubDirectory("rockChildChild");
+                assert(directoryDeletionExpected, "Delete event should fire on root");
+                assert(directoryDeletionExpected1, "Delete event should fire on child1");
+                assert(directoryDeletionExpected2, "Delete event should fire on child2");
+                subDirectory1.deleteSubDirectory("rockChildChild");
             });
 
             it("Should fire dispose event correctly", () => {
@@ -653,6 +723,148 @@ describe("Directory", () => {
                 assert.equal(directory2.getWorkingDirectory("bar")?.get("testKey3"), "testValue3");
                 assert.equal(directory2.get("testKey"), "testValue4");
                 assert.equal(directory2.get("testKey2"), undefined);
+            });
+
+            it("Shouldn't clear value if there is pending set", () => {
+                const valuesChanged: IDirectoryValueChanged[] = [];
+                let clearCount = 0;
+
+                directory1.on("valueChanged", (changed, local, target) => {
+                    valuesChanged.push(changed);
+                });
+                directory1.on("clear", (local, target) => {
+                    clearCount++;
+                });
+
+                directory2.set("directory2key", "value2");
+                directory2.clear();
+                directory1.set("directory1Key", "value1");
+                directory2.clear();
+
+                if (containerRuntimeFactory.processSomeMessages === undefined) {
+                    return;
+                }
+                containerRuntimeFactory.processSomeMessages(2);
+
+                assert.equal(valuesChanged.length, 3);
+                assert.equal(valuesChanged[0].key, "directory1Key");
+                assert.equal(valuesChanged[0].previousValue, undefined);
+                assert.equal(valuesChanged[1].key, "directory2key");
+                assert.equal(valuesChanged[1].previousValue, undefined);
+                assert.equal(valuesChanged[2].key, "directory1Key");
+                assert.equal(valuesChanged[2].previousValue, undefined);
+                assert.equal(clearCount, 1);
+                assert.equal(directory1.size, 1);
+                assert.equal(directory1.get("directory1Key"), "value1");
+
+                containerRuntimeFactory.processSomeMessages(2);
+
+                assert.equal(valuesChanged.length, 3);
+                assert.equal(clearCount, 2);
+                assert.equal(directory1.size, 0);
+            });
+
+            it("Shouldn't overwrite value if there is pending set", () => {
+                const value1 = "value1";
+                const pending1 = "pending1";
+                const pending2 = "pending2";
+                directory1.set("test", value1);
+                directory2.set("test", pending1);
+                directory2.set("test", pending2);
+
+                if (containerRuntimeFactory.processSomeMessages === undefined) {
+                    return;
+                }
+                containerRuntimeFactory.processSomeMessages(1);
+
+                // Verify the SharedDirectory with processed message
+                assert.equal(directory1.has("test"), true, "could not find the set key");
+                assert.equal(directory1.get("test"), value1, "could not get the set key");
+
+                // Verify the SharedDirectory with 2 pending messages
+                assert.equal(directory2.has("test"), true, "could not find the set key in pending directory");
+                assert.equal(directory2.get("test"), pending2, "could not get the set key from pending directory");
+
+                containerRuntimeFactory.processSomeMessages(1);
+
+                // Verify the SharedDirectory gets updated from remote
+                assert.equal(directory1.has("test"), true, "could not find the set key");
+                assert.equal(directory1.get("test"), pending1, "could not get the set key");
+
+                // Verify the SharedDirectory with 1 pending message
+                assert.equal(directory2.has("test"), true, "could not find the set key in pending directory");
+                assert.equal(directory2.get("test"), pending2, "could not get the set key from pending directory");
+            });
+
+            it("Shouldn't set values when pending clear", () => {
+                const key = "test";
+                directory1.set(key, "directory1value1");
+                directory2.set(key, "directory2value2");
+                directory2.clear();
+                directory2.set(key, "directory2value3");
+                directory2.clear();
+
+                if (containerRuntimeFactory.processSomeMessages === undefined) {
+                    return;
+                }
+                // directory1.set(key, "directory1value1");
+                containerRuntimeFactory.processSomeMessages(1);
+
+                // Verify the SharedDirectory with processed message
+                assert.equal(directory1.has("test"), true, "could not find the set key");
+                assert.equal(directory1.get("test"), "directory1value1", "could not get the set key");
+
+                // Verify the SharedDirectory with 2 pending clears
+                assert.equal(directory2.has("test"), false, "found the set key in pending directory");
+
+                // directory2.set(key, "directory2value2");
+                containerRuntimeFactory.processSomeMessages(1);
+
+                // Verify the SharedDirectory gets updated from remote
+                assert.equal(directory1.has("test"), true, "could not find the set key");
+                assert.equal(directory1.get("test"), "directory2value2", "could not get the set key");
+
+                // Verify the SharedDirectory with 2 pending clears
+                assert.equal(directory2.has("test"), false, "found the set key in pending directory");
+
+                // directory2.clear();
+                containerRuntimeFactory.processSomeMessages(1);
+
+                // Verify the SharedDirectory gets updated from remote clear
+                assert.equal(directory1.has("test"), false, "found the set key");
+
+                // Verify the SharedDirectory with 1 pending clear
+                assert.equal(directory2.has("test"), false, "found the set key in pending directory");
+
+                // directory2.set(key, "directory2value3");
+                containerRuntimeFactory.processSomeMessages(1);
+
+                // Verify the SharedDirectory gets updated from remote
+                assert.equal(directory1.has("test"), true, "could not find the set key");
+                assert.equal(directory1.get("test"), "directory2value3", "could not get the set key");
+
+                // Verify the SharedDirectory with 1 pending clear
+                assert.equal(directory2.has("test"), false, "found the set key in pending directory");
+
+                // directory2.clear();
+                containerRuntimeFactory.processSomeMessages(1);
+
+                // Verify the SharedDirectory gets updated from remote clear
+                assert.equal(directory1.has("test"), false, "found the set key");
+
+                // Verify the SharedDirectory with no more pending clear
+                assert.equal(directory2.has("test"), false, "found the set key in pending directory");
+
+                directory1.set(key, "directory1value4");
+                containerRuntimeFactory.processSomeMessages(1);
+
+                // Verify the SharedDirectory gets updated from local
+                assert.equal(directory1.has("test"), true, "could not find the set key");
+                assert.equal(directory1.get("test"), "directory1value4", "could not get the set key");
+
+                // Verify the SharedDirectory gets updated from remote
+                assert.equal(directory1.has("test"), true, "could not find the set key");
+                assert.equal(directory1.get("test"), "directory1value4", "could not get the set key");
             });
         });
 

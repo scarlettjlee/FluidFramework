@@ -31,9 +31,10 @@ import {
     BaseGitRestTelemetryProperties,
     IRepoManagerParams,
     getLumberjackBasePropertiesFromRepoManagerParams,
+    getRepoManagerFromWriteAPI,
 } from "../utils";
 
-function getDocumentStorageDirectory(repoManager: IRepositoryManager, documentId: string): string {
+function getFullSummaryDirectory(repoManager: IRepositoryManager, documentId: string): string {
     return `${repoManager.path}/${documentId}`;
 }
 
@@ -45,33 +46,61 @@ async function getSummary(
     externalWriterConfig?: IExternalWriterConfig,
     persistLatestFullSummary = false,
 ): Promise<IWholeFlatSummary> {
+    const lumberjackProperties = {
+        ...getLumberjackBasePropertiesFromRepoManagerParams(repoManagerParams),
+        [BaseGitRestTelemetryProperties.sha]: sha,
+    };
+
     if (persistLatestFullSummary && sha === latestSummarySha) {
         try {
             const latestFullSummaryFromStorage = await retrieveLatestFullSummaryFromStorage(
                 fileSystemManager,
-                getDocumentStorageDirectory(repoManager, repoManagerParams.storageRoutingId.documentId),
+                getFullSummaryDirectory(repoManager, repoManagerParams.storageRoutingId.documentId),
             );
             if (latestFullSummaryFromStorage !== undefined) {
                 return latestFullSummaryFromStorage;
             }
-        } catch (e) {
+        } catch (error) {
             // This read is for optimization purposes, so on failure
             // we can try to read the summary in typical fashion.
             Lumberjack.error(
                 "Failed to read latest full summary from storage.",
-                {
-                    ...getLumberjackBasePropertiesFromRepoManagerParams(repoManagerParams),
-                    [BaseGitRestTelemetryProperties.sha]: sha,
-                },
-                e);
+                lumberjackProperties,
+                error);
         }
     }
 
+    // If we get to this point, it's because one of the options below:
+    // 1) we did not want to read the latest full summary from storage
+    // 2) we wanted to read the latest full summary, but it did not exist in the storage
+    // 3) the summary being requestd is not the latest
+    // Therefore, we need to compute the summary from scratch.
     const wholeSummaryManager = new GitWholeSummaryManager(
         repoManagerParams.storageRoutingId.documentId,
         repoManager,
         externalWriterConfig?.enabled ?? false,
     );
+    const fullSummary = await wholeSummaryManager.readSummary(sha);
+
+    // Now that we computed the summary from scratch, we can persist it to storage if
+    // the following conditions are met.
+    if (persistLatestFullSummary && sha === latestSummarySha && fullSummary) {
+        // We persist the full summary in a fire-and-forget way because we don't want it
+        // to impact getSummary latency. So upon computing the full summary above, we should
+        // return as soon as possible. Also, we don't care about failures much, since the
+        // next getSummary or a createSummary request may trigger persisting to storage.
+        persistLatestFullSummaryInStorage(
+            fileSystemManager,
+            getFullSummaryDirectory(repoManager, repoManagerParams.storageRoutingId.documentId),
+            fullSummary,
+        ).catch((error) => {
+            Lumberjack.error(
+                "Failed to persist latest full summary to storage during getSummary",
+                lumberjackProperties,
+                error);
+        });
+    }
+
     return wholeSummaryManager.readSummary(sha);
 }
 
@@ -115,16 +144,18 @@ async function createSummary(
                     // TODO: does this fail if file is open and still being written to from a previous request?
                     await persistLatestFullSummaryInStorage(
                         fileSystemManager,
-                        getDocumentStorageDirectory(repoManager, repoManagerParams.storageRoutingId.documentId),
+                        getFullSummaryDirectory(repoManager, repoManagerParams.storageRoutingId.documentId),
                         latestFullSummary,
                     );
                 } catch(error) {
                     Lumberjack.error(
-                        "Failed to persist latest full summary to storage",
+                        "Failed to persist latest full summary to storage during createSummary",
                         lumberjackProperties,
                         error);
                     // TODO: Find and add more information about this failure so that Scribe can retry as necessary.
-                    throw new NetworkError(500, "Failed to persist latest full summary to storage");
+                    throw new NetworkError(
+                        500,
+                        "Failed to persist latest full summary to storage during createSummary");
                 }
             }
             return latestFullSummary;
@@ -139,9 +170,46 @@ async function deleteSummary(
     fileSystemManager: IFileSystemManager,
     repoManagerParams: IRepoManagerParams,
     softDelete: boolean,
-    externalWriterConfig?: IExternalWriterConfig,
-    persistLatestFullSummary = false): Promise<boolean> {
-    throw new NetworkError(501, "Not Implemented");
+    repoPerDocEnabled: boolean,
+    externalWriterConfig?: IExternalWriterConfig): Promise<void> {
+    if(!repoPerDocEnabled) {
+        throw new NetworkError(501, "Not Implemented");
+    }
+    const lumberjackProperties = {
+        ...getLumberjackBasePropertiesFromRepoManagerParams(repoManagerParams),
+        [BaseGitRestTelemetryProperties.repoPerDocEnabled]: repoPerDocEnabled,
+        [BaseGitRestTelemetryProperties.softDelete]: softDelete,
+    };
+    // In repo-per-doc model, the repoManager's path represents the directory that contains summary data.
+    const summaryFolderPath = repoManager.path;
+    Lumberjack.info(`Deleting summary`, lumberjackProperties);
+
+    if (softDelete) {
+        // Currently, we ignore the softDelete header and always implement hard delete. Soft delete will come next.
+        Lumberjack.info(`Skipping soft delete as it will be implemented later.`, lumberjackProperties);
+        return;
+    }
+
+    try {
+        await fileSystemManager.promises.rm(summaryFolderPath, { recursive: true });
+    } catch (error: any) {
+        if (error?.code === "ENOENT" ||
+                (error instanceof NetworkError &&
+                error?.code === 400 &&
+                error?.message.startsWith("Repo does not exist"))) {
+            // File does not exist.
+            Lumberjack.warning(
+                "Tried to delete summary, but it does not exist",
+                lumberjackProperties,
+                error);
+            return;
+        }
+        Lumberjack.error(
+            "Failed to delete summary",
+            lumberjackProperties,
+            error);
+        throw error;
+    }
 }
 
 export function create(
@@ -151,6 +219,7 @@ export function create(
 ): Router {
     const router: Router = Router();
     const persistLatestFullSummary: boolean = store.get("git:persistLatestFullSummary") ?? false;
+    const repoPerDocEnabled: boolean = store.get("git:repoPerDocEnabled") ?? false;
 
     /**
      * Retrieves a summary.
@@ -190,7 +259,7 @@ export function create(
             return;
         }
         const wholeSummaryPayload: IWholeSummaryPayload = request.body;
-        const resultP = repoManagerFactory.open(repoManagerParams)
+        const resultP = getRepoManagerFromWriteAPI(repoManagerFactory, repoManagerParams, repoPerDocEnabled)
             .then(async (repoManager): Promise<IWriteSummaryResponse | IWholeFlatSummary> => createSummary(
                 repoManager,
                 fileSystemManagerFactory.create(repoManagerParams.fileSystemManagerParams),
@@ -222,8 +291,8 @@ export function create(
                 fileSystemManagerFactory.create(repoManagerParams.fileSystemManagerParams),
                 repoManagerParams,
                 softDelete,
+                repoPerDocEnabled,
                 getExternalWriterParams(request.query?.config as string | undefined),
-                persistLatestFullSummary,
             )).catch((error) => logAndThrowApiError(error, request, repoManagerParams));
         handleResponse(resultP, response, undefined, undefined, 204);
     });

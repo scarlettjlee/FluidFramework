@@ -5,10 +5,10 @@
 
 import { strict as assert } from "assert";
 import { ISequencedDocumentMessage } from "@fluidframework/protocol-definitions";
-import { IMergeTreeDeltaOpArgs, MergeTreeMaintenanceType } from "..";
 import { UnassignedSequenceNumber } from "../constants";
 import { IMergeTreeOp } from "../ops";
 import { TextSegment } from "../textSegment";
+import { IMergeTreeDeltaOpArgs, MergeTreeMaintenanceType } from "../mergeTreeDeltaCallback";
 import { TestClient } from "./testClient";
 
 function getOpString(msg: ISequencedDocumentMessage | undefined) {
@@ -17,8 +17,8 @@ function getOpString(msg: ISequencedDocumentMessage | undefined) {
     }
     const op = msg.contents as IMergeTreeOp;
     const opType = op.type.toString();
-    // eslint-disable-next-line @typescript-eslint/dot-notation, max-len
-    const opPos = op && op["pos1"] !== undefined ? `@${op["pos1"]}${op["pos2"] !== undefined ? `,${op["pos2"]}` : ""}` : "";
+    // eslint-disable-next-line @typescript-eslint/dot-notation
+    const opPos = op?.["pos1"] !== undefined ? `@${op["pos1"]}${op["pos2"] !== undefined ? `,${op["pos2"]}` : ""}` : "";
 
     const seq = msg.sequenceNumber < 0 ? "L" : (msg.sequenceNumber - msg.minimumSequenceNumber).toString();
     const ref = (msg.referenceSequenceNumber - msg.minimumSequenceNumber).toString();

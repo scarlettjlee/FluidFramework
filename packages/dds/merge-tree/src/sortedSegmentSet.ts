@@ -3,7 +3,7 @@
  * Licensed under the MIT License.
  */
 
-import { ISegment } from "./mergeTree";
+import { ISegment } from "./mergeTreeNodes";
 
 /**
  * Stores a unique and sorted set of segments, or objects with segments
@@ -53,7 +53,7 @@ export class SortedSegmentSet<T extends ISegment | { readonly segment: ISegment;
 
     private getOrdinal(item: T): string {
         const maybeObject = item as { readonly segment: ISegment; };
-        if (maybeObject && maybeObject.segment) {
+        if (maybeObject?.segment) {
             return maybeObject.segment.ordinal;
         }
 

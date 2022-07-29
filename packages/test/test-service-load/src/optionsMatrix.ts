@@ -15,14 +15,12 @@ import {
     numberCases,
 } from "@fluidframework/test-pairwise-generator";
 import { ILoaderOptions } from "@fluidframework/container-loader";
-import { ConfigTypes } from "@fluidframework/telemetry-utils";
+import { ConfigTypes, LoggingError } from "@fluidframework/telemetry-utils";
 
 const loaderOptionsMatrix: OptionsMatrix<ILoaderOptions> = {
     cache: booleanCases,
     provideScopeLoader: booleanCases,
     maxClientLeaveWaitTime: numberCases,
-    noopCountFrequency: numberCases,
-    noopTimeFrequency: numberCases,
     summarizeProtocolTree: [undefined],
 };
 
@@ -35,7 +33,7 @@ export function applyOverrides<T>(options: OptionsMatrix<T>, optionsOverrides: P
                 if (Array.isArray(override)) {
                     realOptions[key] = override;
                 } else {
-                    throw new Error(`Override for ${key} is not array: ${JSON.stringify(optionsOverrides)}`);
+                    throw new LoggingError(`Override for ${key} is not array: ${JSON.stringify(optionsOverrides)}`);
                 }
             }
         }
@@ -55,12 +53,12 @@ const gcOptionsMatrix: OptionsMatrix<IGCRuntimeOptions> = {
     gcAllowed: booleanCases,
     runFullGC: booleanCases,
     sweepAllowed: [false],
+    sessionExpiryTimeoutMs: [undefined], // Don't want coverage here
 };
 
 const summaryOptionsMatrix: OptionsMatrix<ISummaryRuntimeOptions> = {
-    disableIsolatedChannels: booleanCases,
+    disableIsolatedChannels: [undefined],
     disableSummaries: [false],
-    generateSummaries: [true],
     initialSummarizerDelayMs: numberCases,
     summaryConfigOverrides: [undefined],
     maxOpsSinceLastSummary: numberCases,
@@ -80,6 +78,7 @@ export function generateRuntimeOptions(
         summaryOptions: [undefined, ...summaryOptions],
         loadSequenceNumberVerification: [undefined],
         useDataStoreAliasing: [undefined],
+        enableOfflineLoad: [undefined],
         flushMode: [undefined],
     };
 
