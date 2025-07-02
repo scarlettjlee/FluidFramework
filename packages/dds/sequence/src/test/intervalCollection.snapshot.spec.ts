@@ -80,6 +80,19 @@ async function getSingleIntervalSummary(): Promise<{ summary: ISummaryTree; seq:
 		end: { pos: 2, side: Side.Before },
 	});
 	assert.equal(endStickyInterval.stickiness, IntervalStickiness.END);
+	const collectionStart = sharedString.getIntervalCollection("start");
+	const startInterval = collectionStart.add({
+		start: "start",
+		end: "start",
+	});
+	// this is considering the start to have Side.After to exclude the special "start" segment:
+	assert.equal(startInterval.stickiness, IntervalStickiness.FULL);
+	const collectionEnd = sharedString.getIntervalCollection("end");
+	const endInterval = collectionEnd.add({
+		start: "end",
+		end: "end",
+	});
+	assert.equal(endInterval.stickiness, IntervalStickiness.END);
 	containerRuntimeFactory.processAllMessages();
 	const { summary } = await sharedString.summarize();
 	return { summary, seq: containerRuntimeFactory.sequenceNumber };
@@ -112,6 +125,22 @@ describe("IntervalCollection snapshotting", () => {
 		);
 		assert(interval.end.refType === (ReferenceType.RangeEnd | ReferenceType.SlideOnRemove));
 		/* eslint-enable no-bitwise */
+	});
+
+	it.only("persists end and start segments", async () => {
+		const sharedString = await loadSharedString(containerRuntimeFactory, "1", summary);
+		const endCollection = sharedString.getIntervalCollection("end");
+		let intervals = Array.from(endCollection);
+		assert.equal(intervals.length, 1);
+		let interval = intervals[0] ?? assert.fail();
+		assert.equal(interval.end.getSegment()?.type, "EndOfTreeSegment");
+
+		const startCollection = sharedString.getIntervalCollection("start");
+		intervals = Array.from(startCollection);
+		assert.equal(intervals.length, 1);
+		interval = intervals[0] ?? assert.fail();
+		assert.equal(interval.start.getSegment()?.type, "StartOfTreeSegment");
+		assert.equal(interval.end.getSegment()?.type, "StartOfTreeSegment");
 	});
 
 	it("start stickiness is persisted", async () => {
